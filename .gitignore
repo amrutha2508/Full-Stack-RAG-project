@@ -1,0 +1,49 @@
+# =========================
+# OS
+# =========================
+.DS_Store
+
+# =========================
+# Environment variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Python (FastAPI / Poetry)
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.venv/
+.poetry/
+
+# =========================
+# Node / Next.js
+# =========================
+node_modules/
+.next/
+.turbo/
+dist/
+
+# =========================
+# Supabase / Docker
+# =========================
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# VS Code (optional)
+# =========================
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
