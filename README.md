@@ -44,7 +44,7 @@ I will be building a Full stack RAG project where the users can upload pdfs, doc
     Uses an existing Python interpreter (often Conda’s)
     Creates a virtual environment for your project
     Activates it only when you tell it to
-7. Always run poetry add you cmd to run commands using the poetry virtual env. Ex: "**poetry add uvicorn main:app --reload --port:8000**"
+7. Always run poetry run you cmd to run commands using the poetry virtual env. Ex: "**poetry run uvicorn main:app --reload --port 8000**"
 
 
 
@@ -80,8 +80,35 @@ I will be building a Full stack RAG project where the users can upload pdfs, doc
 2. Route files myst be named page.js or page.tsx
 3. Each folder represents a segment of the URL path.
 
+## Auth Provider:Clerk
+Clerk = “Auth-as-a-service” that plugs directly into your frontend and backend. If we are not using clerk we have to implement
+1. Password hashing and validation.
+2. JWT token generation and verification.
+3. Session Management.
+4. Email verification flows.
+5. Password reset functionality.
+6. Social OAuth integrations.
+7. Security Best Practices
 
+### Implementation:
+1. Install @clerk/nextjs inside client directory
+2. set clerk api keys in .env inside client folder.
+3. Add middleware.ts file inside of the src directory - it helps enable authentication and is where you will configure your protected routes. It runs everytime your page loads. It sits between users request and pages response.
+4. add clerkprovider component to your root layout - root layout(layout.tsx) is the first entry point for the entire nextjs application. If we wrap the components with this clerk provider component, it means that all of clerks methods are going to be available to use in all the different next js files we will write in the future.
 
+### SignIn and SignUp pages
+1. Think of [[...sign-in]] as: “Give me /sign-in and any deeper route under it, and I’ll handle it myself.”
+2. create api endpoint toc reate a user record on user signup - clerk-webhooks - notifies backend-server whenever a event occurs(create/update/delete an account).
+3. webhook is a way for one sistem to notify another system when something happens- backend-only communication
+#### What does “provide an endpoint to Clerk webhook” mean?
+It means two separate things must exist:
+1. You write an API endpoint in your backend code
+2. You register that endpoint URL in the Clerk Dashboard
+3. Inside your code (main.py) - This is where you define the endpoint. This does only one thing, it tells your server:
+“If an HTTP POST comes to /create-user, run this function.”
+4. nside the Clerk Dashboard - This is where you tell Clerk: “Whenever a certain event happens, send it to THIS URL.”
 
-
+### routes files:
+1. we will create a routes folder to arrange all the api files.
+2. inrder to be able to import from this routes folder we have to convert it inot a package which can be done by adding a file __init__.py in the folder  
 

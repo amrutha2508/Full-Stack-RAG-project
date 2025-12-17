@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import os
+from routers import users
 
 load_dotenv()
 
@@ -28,6 +29,7 @@ app.add_middleware(
     allow_methods = ["*"],
     allow_headers = ["*"],
 )
+app.include_router(users.router)
 
 @app.get("/")
 async def root():
@@ -47,5 +49,12 @@ async def get_all_posts():
         return result.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app,host="0.0.0.0",port = 8000, reload=True)
+
 
     
