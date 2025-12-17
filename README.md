@@ -38,7 +38,7 @@ I will be building a Full stack RAG project where the users can upload pdfs, doc
     2. Handles:Request routing, Dependency injection, Validation (via Pydantic), Automatic OpenAPI/Swagger docs
 4. CORSMiddleware
     1. Middleware that implements CORS (Cross-Origin Resource Sharing)
-    2. Needed when: Your frontend and backend run on different origins. Example: Frontend: http://localhost:3000, Backend: http://localhost:8000. Without this middleware, browsers block requests for security reasons.
+    2. Needed when: Your frontend and backend run on different origins. Example: **Frontend: http://localhost:3000**, **Backend: http://localhost:8000**. Without this middleware, browsers block requests for security reasons.
 5. poetry env info --path : exact location of virtual env for this project.
 6. Poetry works like this:
     Uses an existing Python interpreter (often Conda’s)
@@ -74,6 +74,11 @@ I will be building a Full stack RAG project where the users can upload pdfs, doc
     3. creates fresh db.
     4. runs all migrations from scratch in order.
 
+## NextJS:
+### Conventions to nextJS Routing:
+1. All routes must live inside the app folder.
+2. Route files myst be named page.js or page.tsx
+3. Each folder represents a segment of the URL path.
 
 
 
