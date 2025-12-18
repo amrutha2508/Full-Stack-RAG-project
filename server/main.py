@@ -1,19 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from supabase import create_client, Client
 from dotenv import load_dotenv
 import os
 from routers import users
 
 load_dotenv()
 
-supabase_url = os.getenv("SUPABASE_API_URL")
-supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
-
-if not supabase_key or not supabase_url:
-    raise ValueError('missing supabase credentials in environment variables')
-
-supabase: Client = create_client(supabase_url,supabase_key) 
 
 app = FastAPI(
     title = "RAG Application",
@@ -29,6 +21,7 @@ app.add_middleware(
     allow_methods = ["*"],
     allow_headers = ["*"],
 )
+
 app.include_router(users.router)
 
 @app.get("/")
