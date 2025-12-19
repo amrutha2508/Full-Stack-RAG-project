@@ -137,3 +137,10 @@ Content-Type: application/json
 3. method- HTTP verb -Tells backend what action, GET → read, POST → create, DELETE → remove, FastAPI routes are mapped to these verbs.
 4. headers, Metadata about the request, Auth info, Content format, Language, cookies, etc.
 5. body, Actual data being sent, Must be a string for JSON, Parsed by backend using Content-Type
+
+## nextjs react server and client components:
+React components can now be server components or client components depending on where they execute.
+1. Server components = render HTML safely and efficiently on the server.
+2. Client components = handle interactive behavior in the browser.
+You still use React to build the UI for both. Next.js just lets you decide which components run where, for performance and security.
+3. A callback function is a function that is passed as an argument to another function or component and is called later when something happens. Ex: onClose={()=>setSelectedDocumentId(null)}

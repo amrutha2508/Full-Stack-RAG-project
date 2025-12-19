@@ -11,6 +11,19 @@ class ProjectCreate(BaseModel):
     name: str
     description: str = ""
 
+class ProjectSettings(BaseModel):
+    embedding_model: str
+    rag_strategy: str
+    agent_type: str
+    chunks_per_search: int
+    final_context_size: int
+    similarity_threshold: float
+    number_of_queries: int
+    reranking_enabled: bool
+    reranking_model: str
+    vector_weight: float
+    keyword_weight: float
+
 @router.get('/api/projects')
 def get_projects(clerk_id: str = Depends(get_current_user)):
     try:
@@ -75,7 +88,7 @@ def delete_project(
         
         # delete project (cascade effect - changes to relevant tables - already mentioned in the migration file)
         deleted_result = supabase.table('projects').delete().eq('id',project_id).eq('clerk_id',clerk_id).execute()
-        print('deleted_result:',deleted_result)
+
         if not deleted_result.data:
             raise HTTPException(status_code=500, detail="Failed to delete project")
         return {
@@ -86,4 +99,72 @@ def delete_project(
         raise HTTPException(status_code=500, detail = f"Failed to deleted project:{str(e)}")
 
 
+@router.get('/api/projects/{project_id}')
+async def get_project(
+    project_id:str,
+    clerk_id:str = Depends(get_current_user)
+):
+    try:
+        result = supabase.table("projects").select("*").eq("id",project_id).eq("clerk_id",clerk_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return {
+            "message": "Project retrieved successfully",
+            "data": result.data[0]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get project: {str(e)}")
+
+@router.get('/api/projects/{project_id}/chats')
+async def get_project_chats(
+    project_id:str,
+    clerk_id:str = Depends(get_current_user)
+):
+    try: 
+        result = supabase.table("chats").select("*").eq("project_id", project_id).eq("clerk_id", clerk_id).order("created_at",desc=True).execute()
+
+        return {
+            "message": "Project retrieved successfully",
+            "data": result.data or []
+        }
     
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get project: {str(e)}")
+
+@router.get("/api/projects/{project_id}/settings")
+async def get_project_settings(
+    project_id:str,
+    clerk_id: str=Depends(get_current_user)
+):
+    try:
+        settings_result = supabase.table('project_settings').select('*').eq("project_id",project_id).execute()
+        if not settings_result.data:
+            raise HTTPException(status_code=404, detail="Project settings not found")
+        return {
+            "message":"Project settings retrieved successfully",
+            "data": settings_result.data[0]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get project settings: {str(e)}")
+
+@router.put('/api/projects/{project_id}/settings')
+async def update_project_settings(
+    project_id: str,
+    settings: ProjectSettings,
+    clerk_id: str = Depends(get_current_user) 
+):
+    try:
+        project_result = supabase.table('projects').select('id').eq('id',project_id).eq('clerk_id',clerk_id).execute()
+        if not project_result.data:
+            raise HTTPException(status_code=404, detail= f"Project not found or access denied")
+        
+        result = supabase.table("project_settings").update(settings.model_dump()).eq("project_id",project_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail = f"Failed to update project settings: {str(e)}")
+        return {
+            "message":"Project settings updated successfully",
+            "data":result.data[0]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update project settings: {str(e)}")

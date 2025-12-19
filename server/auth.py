@@ -8,6 +8,7 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS","http://localhost:3000").split(','
 
 async def get_current_user(request: Request) -> str:
     try:
+        
         request_state = clerk_client.authenticate_request(
             request,
             AuthenticateRequestOptions(
