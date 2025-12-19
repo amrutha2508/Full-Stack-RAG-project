@@ -57,7 +57,7 @@ I will be building a Full stack RAG project where the users can upload pdfs, doc
 ## supabase db set up
 1. you will require docker desktop to run instances of supabase locally.
 2. run npx supabase init - creates configuration supabase files for server-side project-> press "N" for Deno and IntelliJ settings
-3. npx supabase start - this command 
+3. **npx supabase start** - this command 
     1. spind up dockers containers with poSTGREsql, Auth, APIs.
     2. creates supabase backend-service
     3. Gives you the URL and key for supabase.
@@ -112,3 +112,28 @@ It means two separate things must exist:
 1. we will create a routes folder to arrange all the api files.
 2. inrder to be able to import from this routes folder we have to convert it inot a package which can be done by adding a file __init__.py in the folder  
 
+### some points regarding the client folders
+1. import { Sidebar } from "@/components/layout/Sidebar"; the @ directs towards app directory folder
+2. the "children" found in the layout.tsx refers to the page component(page.tsx)
+3. Before letting the user access the children component we are checking if the usr is logged in using auth in the layout.tsx.
+
+### JWT
+1. for managing JWT related stuff install clerk_backend_api - poetry add clerk_backend_api
+2. const { getToken, isLoaded, isSignedIn, sessionId, userId } = useAuth() - this hook gives us access to the jwt token, we an make the api calls to the server only if we have this token as it will be checking for authentication befor the api calls  
+
+## HTTP requests
+### What is headers in fetch?
+1. headers is metadata sent along with the HTTP request.
+2. Think of it like the envelope around a letter 📩:
+    1. The body = the letter (actual data)
+    2. Headers = instructions about how to read the letter and who sent it
+
+Ex: POST /api/projects
+Authorization: Bearer eyJhbGci...
+Content-Type: application/json
+### Why headers are initialized differently in get vs post
+1. GET usually does not send a body, So you don’t need Content-Type, You only add Authorization if needed
+2. POST sends data in the body, The server must know how to parse it
+3. method- HTTP verb -Tells backend what action, GET → read, POST → create, DELETE → remove, FastAPI routes are mapped to these verbs.
+4. headers, Metadata about the request, Auth info, Content format, Language, cookies, etc.
+5. body, Actual data being sent, Must be a string for JSON, Parsed by backend using Content-Type
