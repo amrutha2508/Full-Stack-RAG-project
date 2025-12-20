@@ -144,3 +144,7 @@ React components can now be server components or client components depending on 
 2. Client components = handle interactive behavior in the browser.
 You still use React to build the UI for both. Next.js just lets you decide which components run where, for performance and security.
 3. A callback function is a function that is passed as an argument to another function or component and is called later when something happens. Ex: onClose={()=>setSelectedDocumentId(null)}
+
+## S3 
+1. We will be using S3 providers(tigris) instead of aws S3. This we behave same like S3 with all access keys and methods.
+2. Inorder to get presigned urls we need the generate presigned url method provided by the aws SDK (Boto3 - an aws SDK for python that allows developers to write code to interact with AWS services like S3 and EC2).
