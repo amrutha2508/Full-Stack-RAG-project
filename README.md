@@ -148,3 +148,33 @@ You still use React to build the UI for both. Next.js just lets you decide which
 ## S3 
 1. We will be using S3 providers(tigris) instead of aws S3. This we behave same like S3 with all access keys and methods.
 2. Inorder to get presigned urls we need the generate presigned url method provided by the aws SDK (Boto3 - an aws SDK for python that allows developers to write code to interact with AWS services like S3 and EC2).
+
+## Background processing stack (Redis, celery, fastapi)
+1. **celery**: most popular python task queue. works seemlessly with FastAPI, handles retries, failurews and task schedulun automatically. easy to monitor and debug, scales from 1 worker to 1000+ workers
+2. **Redis**: redis is a superfast notepad that lives in your computers memory. it is a simple db that stores key-value pairs. everything is on RAM not on disk. reading/writing is nearly instant. can be used for caching, message queues(real time messages between programs), real time counters.
+3. summary:
+    1. Celery is the executor of the tasks.
+    2. Redis provides a queue data structure that is perfect for storing tasks to be taken up. This can ve thought of as the middleware or the broker between fastapi and celery.
+    3. As soon as celery worker finished with a task, the result can be stored either in redis itself or postgres. 
+4. installations
+    1. redis is not a python package, it is a separate service that needs to run on its own = 
+    brew install redis (in terminal)
+    2. poetry add redis - celery app can use this to connect to redis server.
+    3. Celery is a python package = 
+    "poetry add celery" , to start a celery worker = "celery -A tasks worker --loglevel=info --pool=threads"
+5. the task_item's(that is going to be put inside of redis) structure is:
+    task_data = {
+        "task" : "process_document",
+        "args" : [file_path],
+        "id" : "abc-123-def"
+    }
+    this is created by "delay" method ex:process_document.delay(document_id)
+6. What does .delay() do (.delay() comes from celery)? task_id = process_document.delay(document_id)
+    1. it Enqueue the Celery task
+    2. This line: ❌ Does NOT execute process_document, ✅ Sends a message to Redis, ✅ Returns immediately
+    3. Internally, Celery does:         
+        1. Serialize: Task name (process_document) Args (document_id)
+        2. Publish message to Redis queue
+        3. Return an AsyncResult
+7. whenever we make changes to celery app code we have to manually stoop and restarte the celery server for the changes to be reflected unlike fastapi where the changes are reflected automatically.
+
