@@ -178,3 +178,9 @@ You still use React to build the UI for both. Next.js just lets you decide which
         3. Return an AsyncResult
 7. whenever we make changes to celery app code we have to manually stoop and restarte the celery server for the changes to be reflected unlike fastapi where the changes are reflected automatically.
 
+## RAG pipeline Integration
+### 1. install dependencies - 
+`poetry add langchain==0.3.27 langchain-community==0.3.27 langchain-openai==0.3.28 "unstructured[all-docs]==0.18.11"`. 
+an Error: For langchain, a possible solution would be to set the `python` property to ">=3.13,<4.0" => replace "requires-python = ">=3.11" with requires-python = ">=3.11,<4.0" in poetry.toml
+### 2. partitioning the document:
+1. tmp is a folder that sits at the very root of your computer.
