@@ -48,3 +48,22 @@ async def delete_chat(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete chat: {str(e)}")
+
+@router.get('/api/chats/{chat_id}')
+async def get_chat(
+    chat_id :str,
+    clerk_id: str = Depends(get_current_user)
+):
+    try: 
+        result = supabase.table('chats').select('*').eq('id',chat_id).eq('clerk_id',clerk_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="chat not found or access denied")
+        chat = result.data[0]
+        messages_result = supabase.table('messages').select('*').eq('chat_id',chat_id).order('created_at',desc=True).execute()
+        chat['messages'] = messages_result.data or []
+        return{
+            "message":"Chat retrieved successfully",
+            "data": chat
+        }
+    except Exception as e:
+        raise 

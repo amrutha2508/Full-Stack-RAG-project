@@ -184,3 +184,12 @@ You still use React to build the UI for both. Next.js just lets you decide which
 an Error: For langchain, a possible solution would be to set the `python` property to ">=3.13,<4.0" => replace "requires-python = ">=3.11" with requires-python = ">=3.11,<4.0" in poetry.toml
 ### 2. partitioning the document:
 1. tmp is a folder that sits at the very root of your computer.
+
+## webscraping:
+1. pythons in-built requests module was used to scrape websites. it works great
+    1. - it only fetched raw html from server.
+
+
+## Questions:
+1. "use client" directive
+2. "web scrapping"

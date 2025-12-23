@@ -11,7 +11,7 @@ import { NotFound } from '@/components/ui/NotFound';
 import toast from "react-hot-toast";
 import { Users } from 'lucide-react';
 import { Project, ProjectDocument, ProjectSettings, Chat} from "@/lib/types"
-
+import { useRouter } from 'next/router';
 
 interface ProjectPageProps {
     params: Promise<{
@@ -31,6 +31,7 @@ function ProjectPage({params}: ProjectPageProps) {
     // the "use" hook helps in resolving the promise and provide the object
     const {projectId} = use(params);
     const {getToken, userId} = useAuth();
+    const router = useRouter();
     //data state
     const [data,setData] = useState<ProjectData>({
         project:null,
@@ -147,7 +148,8 @@ function ProjectPage({params}: ProjectPageProps) {
         }
     };
     const handleChatClick = (chatId: string) => {
-        console.log("Navigate to chat:",chatId);
+        router.push(`/projects/${projectId}/chats/${chatId}`);
+
     };
 
     // document related methods

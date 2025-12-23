@@ -4,6 +4,10 @@ import time
 from unstructured.partition.pdf import partition_pdf
 from unstructured.partition.docx import partition_docx
 from unstructured.partition.html import partition_html
+from unstructured.partition.pptx import partition_pptx
+from unstructured.partition.text import partition_text
+from unstructured.partition.md import partition_md
+
 from unstructured.chunking.title import chunk_by_title
 import os
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -11,6 +15,11 @@ from langchain_core.messages import HumanMessage
 
 # initialize llm for summarization
 llm = ChatOpenAI(model = "gpt-4-turbo", temperature=0)
+
+embeddings_model = OpenAIEmbeddings(
+    model = "text-embedding-3-large",
+    dimensions=1536
+)
 
 # create Celery app
 celery_app = Celery(
@@ -45,6 +54,7 @@ def process_document(document_id:str):
     try:
         doc_result = supabase.table('project_documents').select('*').eq("id",document_id).execute()
         document = doc_result.data[0]
+        source_type = document.get('source_type', 'file')
 
         # 1. download file from s3 and partition it
         update_status(document_id,"partitioning")
@@ -69,8 +79,9 @@ def process_document(document_id:str):
         update_status(document_id,"vectorization") # chunk details are being stored in the document_chunks table
         stored_chunk_ids = store_chunks_with_embeddings(document_id, processed_chunks)
 
-
-
+        # Mark as completed
+        update_status(document_id, "completed")
+        print(f"REAL Celery task completed for document: {document_id} with {len(stored_chunk_ids)} chunks")
     
         return{
             "status": "success",
@@ -120,10 +131,8 @@ def parition_document(temp_file:str, file_type:str, source_type:str="file"):
     """ Partition document based on file_type and source_type """
     if source_type == "url":
         pass
-    if file_type == "pdf":
+    elif file_type == "pdf":
         # partition the pdf here
-        print(f"partitioning document started")
-    
         return partition_pdf(
             filename=temp_file,
             strategy="hi_res",
@@ -131,8 +140,28 @@ def parition_document(temp_file:str, file_type:str, source_type:str="file"):
             extract_image_block_types=["Image"],
             extract_image_block_to_payload=True
         )
-        pass
+    elif file_type == "docx":
+        return partition_docx(
+            filename=temp_file,
+            strategy="hi_res",
+            infer_table_structure=True 
+        )
+    elif file_type == "pptx":
+        return partition_pptx(
+            filename=temp_file,
+            strategy="hi_res",
+            infer_table_structure=True 
+        )
+    elif file_type == "md":
+        return partition_md(
+            filename=temp_file,
+        )
+    elif file_type == "text":
+        return partition_text(
+            filename=temp_file,
+        )
 
+        
 def analyze_elements(elements):
     """ Count different types of elements found in the document """
     text_count = 0
@@ -347,4 +376,47 @@ SEARCH INDEX:"""
     except Exception as e:
         print(f" AI summary failed: {e}")
 
+
+ 
+def store_chunks_with_embeddings(document_id: str, processed_chunks: list):
+    """Generate embeddings and store chunks in one efficient operation"""
+    print("Generating embeddings and storing chunks...")
+    
+    if not processed_chunks:
+        print(" No chunks to process")
+        return []
+    
+    # Step 1: Generate embeddings for all chunks
+    print(f"Generating embeddings for {len(processed_chunks)} chunks...")
+    
+    # Extract content for embedding generation
+    texts = [chunk_data['content'] for chunk_data in processed_chunks]
+    
+    # Generate embeddings in batches to avoid API limits
+    batch_size = 10
+    all_embeddings = []
+    
+    for i in range(0, len(texts), batch_size):
+        batch_texts = texts[i:i + batch_size]
+        batch_embeddings = embeddings_model.embed_documents(batch_texts)
+        all_embeddings.extend(batch_embeddings)
+        print(f" ✅ Generated embeddings for batch {i//batch_size + 1}/{(len(texts) + batch_size - 1)//batch_size}")
+    
+    # Step 2: Store chunks with embeddings
+    print("Storing chunks with embeddings in database...")
+    stored_chunk_ids = []
+    
+    for i, (chunk_data, embedding) in enumerate(zip(processed_chunks, all_embeddings)):
+        # Add document_id, chunk_index, and embedding
+        chunk_data_with_embedding = {
+            **chunk_data,
+            'document_id': document_id,
+            'chunk_index': i,
+            'embedding': embedding
+        }
         
+        result = supabase.table('document_chunks').insert(chunk_data_with_embedding).execute()
+        stored_chunk_ids.append(result.data[0]['id'])
+    
+    print(f"Successfully stored {len(processed_chunks)} chunks with embeddings")
+    return stored_chunk_ids
