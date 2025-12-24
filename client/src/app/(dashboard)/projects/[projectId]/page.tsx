@@ -121,6 +121,7 @@ function ProjectPage({params}: ProjectPageProps) {
             },
             token)
             const savedChat = result.data;
+            router.push(`/projects/${projectId}/chats/${savedChat.id}`);
             setData((prev)=>({
                 ...prev,
                 chats: [savedChat, ...prev.chats]

@@ -3,10 +3,15 @@ from pydantic import BaseModel
 from database import supabase
 from auth import get_current_user
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from typing import List, Dict, Tuple
 
 # initialize llm for response 
 llm = ChatOpenAI(model = "gpt-4o", temperature=0)
+embeddings_model = OpenAIEmbeddings(
+    model="text-embedding-3-large",
+    dimensions=1536
+)
 
 router = APIRouter(
     tags = ["chats"]
@@ -72,18 +77,258 @@ async def get_chat(
         }
     except Exception as e:
         raise 
+
+def load_project_settings(project_id: str) -> dict:
+    print('fetching project settings...')
+    settings_result = supabase.table('project_settings').select('*').eq('project_id',project_id).execute()
+
+    if not settings_result.data:
+        raise HTTPException(status_code=404,detail="Project settings not found")
+    settings = settings_result.data[0]
+    print('✅ settings retrived')
+    return settings
+
+def get_document_ids(project_id: str) -> List[str]:
+    """Get all document IDs for a project"""
+    print(f"📄 Fetching project documents...")
+    documents_result = supabase.table('project_documents').select('id').eq('project_id', project_id).execute()
+    
+    document_ids = [doc['id'] for doc in documents_result.data]
+    print(f"✅ Found {len(document_ids)} documents")
+    return document_ids
+
+def vector_search(query:str, document_ids:List[str], settings:dict) -> List[Dict]:
+    query_embedding = embeddings_model.embed_query(query)
+    result = supabase.rpc('vector_search_document_chunks', {
+        'query_embedding': query_embedding,
+        'filter_document_ids': document_ids,
+        'match_threshold': settings["similarity_threshold"],
+        'chunks_per_search': settings["chunks_per_search"]
+    }).execute()
+    return result.data if result.data else []
+
+def build_context(chunks: List[Dict]) -> Tuple[List[str], List[str], List[str], List[Dict]]:
+    """
+    Returns:
+        Tuple of (texts, images, tables, citations)
+    """
+    if not chunks:
+        return [], [], [], []
+    
+    texts = []
+    images = []
+    tables = []
+    citations = [] 
+    
+    # Batch fetch all filenames in ONE query
+    doc_ids = [chunk['document_id'] for chunk in chunks if chunk.get('document_id')]
+    unique_doc_ids: List[str] = list(set(doc_ids))  # ✅ Fixed syntax
+    
+    filename_map = {}
+    
+    if unique_doc_ids:
+        result = supabase.table('project_documents')\
+            .select('id, filename')\
+            .in_('id', unique_doc_ids)\
+            .execute()
+        filename_map = {doc['id']: doc['filename'] for doc in result.data}
+    
+    # Process each chunk
+    for chunk in chunks:
+        original_content = chunk.get('original_content', {})
+        
+        # Extract content from chunk
+        chunk_text = original_content.get('text', '')
+        chunk_images = original_content.get('images', [])
+        chunk_tables = original_content.get('tables', [])
+
+        # Collect content
+        if chunk_text:  # ✅ Add this check back
+            texts.append(chunk_text)
+        images.extend(chunk_images)
+        tables.extend(chunk_tables)
+        
+        # Add citation for every chunk
+        doc_id = chunk.get('document_id')
+        if doc_id:
+            citations.append({
+                "chunk_id": chunk.get('id'),
+                "document_id": doc_id,
+                "filename": filename_map.get(doc_id, 'Unknown Document'),
+                "page": chunk.get('page_number', 'Unknown')
+            })
+    
+    return texts, images, tables, citations
+
+def validate_context(texts: List[str], images: List[str], tables: List[str], citations: List[Dict]) -> None:
+    """Validate and print context data in a readable format"""
+    print("\n" + "="*80)
+    print("📦 CONTEXT VALIDATION")
+    print("="*80)
+    
+    # Texts - SHOW FULL TEXT
+    print(f"\n📝 TEXTS: {len(texts)} chunks")
+    for i, text in enumerate(texts, 1):
+        print(f"\n{'='*80}")
+        print(f"CHUNK [{i}] - {len(text)} characters")
+        print(f"{'='*80}")
+        print(text)  # ✅ Full text, no truncation
+        print(f"{'='*80}\n")
+    
+    # Images
+    print(f"\n🖼️  IMAGES: {len(images)}")
+    for i, img in enumerate(images, 1):
+        img_preview = str(img)[:60] + ('...' if len(str(img)) > 60 else '')
+        print(f"  [{i}] {img_preview}")
+    
+    # Tables
+    print(f"\n📊 TABLES: {len(tables)}")
+    for i, table in enumerate(tables, 1):
+        if isinstance(table, dict):
+            rows = len(table.get('rows', []))
+            cols = len(table.get('headers', []))
+            print(f"  [{i}] {rows} rows × {cols} cols")
+        else:
+            print(f"  [{i}] Type: {type(table).__name__}")
+    
+    # Citations
+    print(f"\n📚 CITATIONS: {len(citations)}")
+    for i, cite in enumerate(citations, 1):
+        chunk_id = cite['chunk_id'][:8] if cite.get('chunk_id') else 'N/A'
+        print(f"  [{i}] {cite['filename']} (pg.{cite['page']}) | chunk: {chunk_id}...")
+    
+    # Summary
+    total_chars = sum(len(text) for text in texts)
+    print(f"\n{'='*80}")
+    print(f"✅ Total: {len(texts)} texts ({total_chars:,} chars), {len(images)} images, {len(tables)} tables, {len(citations)} citations")
+    print("="*80 + "\n")
+
+def prepare_prompt_and_invoke_llm(
+    user_query: str,
+    texts: List[str],
+    images: List[str],
+    tables: List[str]
+) -> str:
+    """
+    Builds system prompt with context and invokes LLM with multi-modal support
+    
+    Args:
+        user_query: The user's question
+        texts: List of text chunks from documents
+        images: List of base64-encoded images
+        tables: List of HTML table strings
+    
+    Returns:
+        AI response string
+    """
+    # Build system prompt parts
+    prompt_parts = []
+    
+    # Main instruction
+    prompt_parts.append(
+        "You are a helpful AI assistant that answers questions based solely on the provided context. "
+        "Your task is to provide accurate, detailed answers using ONLY the information available in the context below.\n\n"
+        "IMPORTANT RULES:\n"
+        "- Only answer based on the provided context (texts, tables, and images)\n"
+        "- If the answer cannot be found in the context, respond with: 'I don't have enough information in the provided context to answer that question.'\n"
+        "- Do not use external knowledge or make assumptions beyond what's explicitly stated\n"
+        "- When referencing information, be specific and cite relevant parts of the context\n"
+        "- Synthesize information from texts, tables, and images to provide comprehensive answers\n\n"
+    )
+    
+    # Add text contexts
+    if texts:
+        prompt_parts.append("=" * 80)
+        prompt_parts.append("CONTEXT DOCUMENTS")
+        prompt_parts.append("=" * 80 + "\n")
+        
+        for i, text in enumerate(texts, 1):
+            prompt_parts.append(f"--- Document Chunk {i} ---")
+            prompt_parts.append(text.strip())
+            prompt_parts.append("")
+    
+    # Add tables if present
+    if tables:
+        prompt_parts.append("\n" + "=" * 80)
+        prompt_parts.append("RELATED TABLES")
+        prompt_parts.append("=" * 80)
+        prompt_parts.append(
+            "The following tables contain structured data that may be relevant to your answer. "
+            "Analyze the table contents carefully.\n"
+        )
+        
+        for i, table_html in enumerate(tables, 1):
+            prompt_parts.append(f"--- Table {i} ---")
+            prompt_parts.append(table_html)
+            prompt_parts.append("")
+    
+    # Reference images if present
+    if images:
+        prompt_parts.append("\n" + "=" * 80)
+        prompt_parts.append("RELATED IMAGES")
+        prompt_parts.append("=" * 80)
+        prompt_parts.append(
+            f"{len(images)} image(s) will be provided alongside the user's question. "
+            "These images may contain diagrams, charts, figures, formulas, or other visual information. "
+            "Carefully analyze the visual content when formulating your response. "
+            "The images are part of the retrieved context and should be used to answer the question.\n"
+        )
+    
+    # Final instruction
+    prompt_parts.append("=" * 80)
+    prompt_parts.append(
+        "Based on all the context provided above (documents, tables, and images), "
+        "please answer the user's question accurately and comprehensively."
+    )
+    prompt_parts.append("=" * 80)
+    
+    system_prompt = "\n".join(prompt_parts)
+    
+    # Build messages for LLM
+    messages = [SystemMessage(content=system_prompt)]
+    
+    # Create human message with user query and images
+    if images:
+        # Multi-modal message: text + images
+        content_parts = [{"type": "text", "text": user_query}]
+        
+        # Add each image to the content array
+        for img_base64 in images:
+            # Clean base64 string if it has data URI prefix
+            if img_base64.startswith('data:image'):
+                img_base64 = img_base64.split(',', 1)[1]
+            
+            content_parts.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}
+            })
+        
+        messages.append(HumanMessage(content=content_parts))
+    else:
+        # Text-only message
+        messages.append(HumanMessage(content=user_query))
+    
+    # Invoke LLM and return response
+    print(f"🤖 Invoking LLM with {len(messages)} messages ({len(texts)} texts, {len(tables)} tables, {len(images)} images)...")
+    response = llm.invoke(messages)
+    
+    return response.content
+
+
 class sendMessageRequest(BaseModel):
     content: str
 
-@router.post('/api/projects/{projectId}/chats/{chat_id}/messages')
+@router.post('/api/projects/{project_id}/chats/{chat_id}/messages')
 async def send_message(
     chat_id: str,
+    project_id: str,
     request: sendMessageRequest,
     clerk_id: str = Depends(get_current_user)
 ):
     try:
         message = request.content
         print(f"new message: {message[:50]}...")
+        # 1. save user message
         print("saving user message...")
         user_message_result = supabase.table('messages').insert({
             "chat_id": chat_id,
@@ -95,19 +340,39 @@ async def send_message(
         user_message = user_message_result.data[0]
         print(f"user message saved: {user_message['id']}")
 
-        print(f"calling llm...")
-        messages = [
-            SystemMessage(content="You are a helpful AI assistant. Provide clear, concise, and accurate responses."),
-            HumanMessage(content=message)
-        ]
-        response = llm.invoke(messages)
-        ai_response = response.content
+        # 2. Load project settings 
+        settings = load_project_settings(project_id)
 
+        # 3. document IDs associated with this project
+        document_ids = get_document_ids(project_id)
+
+        # 4. Generate the query embedding
+        # 5. Perform vector search using the RPC function retrieve top k chunks
+        chunks = vector_search(message, document_ids, settings)
+        print(f"retrived {len(chunks)} relevant chunks from vector search")
+
+        # 6. Build context from retrieved chunks
+        texts, images, tables, ciatations = build_context(chunks)
+        # validate_context(texts, images, tables, ciatations)
+
+        # 7. Build system prompt with injected context
+        # 8. call llm and get response
+        print(f" prepaping context and calling llm...")
+        ai_response = prepare_prompt_and_invoke_llm(
+            user_query=message,
+            texts=texts,
+            images=images,
+            tables=tables
+        )
+       
+        # 9. save ai message with ciatations to databasee
+        print('saving ai message...')
         ai_message_result = supabase.table('messages').insert({
             "chat_id":chat_id,
             "content":ai_response,
             "role":"assistant",
-            "clerk_id":clerk_id
+            "clerk_id":clerk_id,
+            "citations": ciatations
         }).execute()
 
         ai_message = ai_message_result.data[0]
@@ -120,4 +385,4 @@ async def send_message(
         }
     except Exception as e:
         print(f" Error in send_message:{str(e)}")
-        raise HTTPException(status_code=500, detaile=str(e))
+        raise HTTPException(status_code=500, detail=str(e))

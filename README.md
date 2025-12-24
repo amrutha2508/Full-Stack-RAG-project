@@ -66,7 +66,7 @@ I will be building a Full stack RAG project where the users can upload pdfs, doc
 
 ## Running the DB Migration:
 1. create a migration file - each migration file should represent a local change to the database structure. - in our case the tables, indexes, extension creations.
-2. we can create a migration by running : supabase migration new [migration_name]
+2. we can create a migration by running : **supabase migration new [migration_name]**
 3. add the db schema sql to this migration sql file
 4. run the migration : cmd - supabase db reset.
     1. it stops local db.
@@ -159,7 +159,7 @@ You still use React to build the UI for both. Next.js just lets you decide which
 4. installations
     1. redis is not a python package, it is a separate service that needs to run on its own = 
     brew install redis (in terminal)
-    2. poetry add redis - celery app can use this to connect to redis server.
+    2. poetry add redis - celery app can use this to connect to redis server. To start redis server - "redis-server
     3. Celery is a python package = 
     "poetry add celery" , to start a celery worker = "celery -A tasks worker --loglevel=info --pool=threads"
 5. the task_item's(that is going to be put inside of redis) structure is:
@@ -185,6 +185,13 @@ an Error: For langchain, a possible solution would be to set the `python` proper
 ### 2. partitioning the document:
 1. tmp is a folder that sits at the very root of your computer.
 
+## RAG implementation:
+### 1. simple RAG implementation:
+1. when the send_message API endpoint is hit, we embed the user query so we can perform vecto search across our chunks table.
+2. the vector search operation needs to be written as a Postgress function because supabase's REST API(.select(),.filter()) doesn't expose pgvector operators like <#> for cosine distance, so funcitons are the onlt way to access this functionality.
+3. combine retrived chunks into a prompt fot the LLM.
+4. send it to LLLM to generate final response.
+
 ## webscraping:
 1. pythons in-built requests module was used to scrape websites. it works great
     1. - it only fetched raw html from server.
@@ -193,3 +200,28 @@ an Error: For langchain, a possible solution would be to set the `python` proper
 ## Questions:
 1. "use client" directive
 2. "web scrapping"
+
+## notations 
+1. What prev! means - This is a TypeScript non-null assertion operator. It tells TypeScript: “Trust me — prev is NOT null or undefined here.”
+2. postgreSQL functions:
+    1. create or replace function hello_world() -> function name
+    2. returns text -> return type
+    3. language sql -> language of the function body
+    4. as $$ -> start of funciton body
+    5.     select 'hello world'; - body of the function
+    6. $$ -> end 
+3. match_threshold double precision DEFAULT 0.3,  double precession is postgres version of float
+4. $function$ (more readable compared to $$)- marks the start of function body - dollar quoted string delimiter we could use $$ as well.
+5. dc.embedding <=> query_embedding - "<=>" -> cosine distance operator -> calculates hoe "distant" the chunk's embedding is from the query embedding. -> lower value=more similar(vectors are closer)
+6. 1 - cosine distance = cosine similarity
+
+7. {
+        "type": "image_url",
+        "image_url": {
+            "url": f"data:image/png;base64,{image_base64}"
+        }
+    }
+    1. data: - Inline data (not a web link)
+    2. image/png - MIME type stands for Multipurpose Internet Mail Extensions type. It’s a standard label that tells systems what kind of data something is and how to interpret it.
+    3. base64 - Encoding
+    4. {image_base64} - Image data
