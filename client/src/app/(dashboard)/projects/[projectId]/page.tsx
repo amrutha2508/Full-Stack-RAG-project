@@ -11,7 +11,7 @@ import { NotFound } from '@/components/ui/NotFound';
 import toast from "react-hot-toast";
 import { Users } from 'lucide-react';
 import { Project, ProjectDocument, ProjectSettings, Chat} from "@/lib/types"
-import { useRouter } from 'next/router';
+import { useRouter } from 'next/navigation';
 
 interface ProjectPageProps {
     params: Promise<{
@@ -149,7 +149,6 @@ function ProjectPage({params}: ProjectPageProps) {
     };
     const handleChatClick = (chatId: string) => {
         router.push(`/projects/${projectId}/chats/${chatId}`);
-
     };
 
     // document related methods

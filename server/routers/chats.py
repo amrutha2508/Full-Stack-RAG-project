@@ -2,6 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from database import supabase
 from auth import get_current_user
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_openai import ChatOpenAI
+
+# initialize llm for response 
+llm = ChatOpenAI(model = "gpt-4o", temperature=0)
 
 router = APIRouter(
     tags = ["chats"]
@@ -59,7 +64,7 @@ async def get_chat(
         if not result.data:
             raise HTTPException(status_code=404, detail="chat not found or access denied")
         chat = result.data[0]
-        messages_result = supabase.table('messages').select('*').eq('chat_id',chat_id).order('created_at',desc=True).execute()
+        messages_result = supabase.table('messages').select('*').eq('chat_id',chat_id).order('created_at',desc=False).execute()
         chat['messages'] = messages_result.data or []
         return{
             "message":"Chat retrieved successfully",
@@ -67,3 +72,52 @@ async def get_chat(
         }
     except Exception as e:
         raise 
+class sendMessageRequest(BaseModel):
+    content: str
+
+@router.post('/api/projects/{projectId}/chats/{chat_id}/messages')
+async def send_message(
+    chat_id: str,
+    request: sendMessageRequest,
+    clerk_id: str = Depends(get_current_user)
+):
+    try:
+        message = request.content
+        print(f"new message: {message[:50]}...")
+        print("saving user message...")
+        user_message_result = supabase.table('messages').insert({
+            "chat_id": chat_id,
+            "content": message,
+            "role": "user",
+            "clerk_id": clerk_id
+        }).execute()
+
+        user_message = user_message_result.data[0]
+        print(f"user message saved: {user_message['id']}")
+
+        print(f"calling llm...")
+        messages = [
+            SystemMessage(content="You are a helpful AI assistant. Provide clear, concise, and accurate responses."),
+            HumanMessage(content=message)
+        ]
+        response = llm.invoke(messages)
+        ai_response = response.content
+
+        ai_message_result = supabase.table('messages').insert({
+            "chat_id":chat_id,
+            "content":ai_response,
+            "role":"assistant",
+            "clerk_id":clerk_id
+        }).execute()
+
+        ai_message = ai_message_result.data[0]
+        return{
+            "message": "message sent successfully",
+            "data": {
+                "userMessage": user_message,
+                "aiMessage": ai_message
+            }
+        }
+    except Exception as e:
+        print(f" Error in send_message:{str(e)}")
+        raise HTTPException(status_code=500, detaile=str(e))
