@@ -314,6 +314,76 @@ def prepare_prompt_and_invoke_llm(
     
     return response.content
 
+def rrf_rank_and_fuse(search_results_list: List[List[Dict]], weights: List[float] = None, k: int = 60) -> List[Dict]:
+    """RRF (Reciprocal Rank Fusion) ranking"""
+    if not search_results_list or not any(search_results_list):
+        return []
+    
+    if weights is None:
+        weights = [1.0 / len(search_results_list)] * len(search_results_list)
+    
+    chunk_scores = {}
+    all_chunks = {}
+    
+    for search_idx, results in enumerate(search_results_list):
+        weight = weights[search_idx]
+        
+        for rank, chunk in enumerate(results):
+            chunk_id = chunk.get('id')
+            if not chunk_id:
+                continue
+            
+            rrf_score = weight * (1.0 / (k + rank + 1))
+            
+            if chunk_id in chunk_scores:
+                chunk_scores[chunk_id] += rrf_score
+            else:
+                chunk_scores[chunk_id] = rrf_score
+                all_chunks[chunk_id] = chunk
+    
+    sorted_chunk_ids = sorted(chunk_scores.keys(), key=lambda cid: chunk_scores[cid], reverse=True)
+    return [all_chunks[chunk_id] for chunk_id in sorted_chunk_ids]
+
+
+def hybrid_search(query:str, document_ids: List[str], settings: dict) -> List[Dict]:
+    vector_results = vector_search(query, document_ids, settings)
+    keyword_results = keyword_search(query, document_ids, settings)
+
+    print(f"vector search returned {len(vector_results)} chunks")
+    print(f"keyword search returned {len(keyword_results)} chunks")
+    return rrf_rank_and_fuse(
+        [vector_results, keyword_results],
+        [settings['vector_weight'],settings['keyword_weight']]
+    )
+
+def keyword_search(query: str, document_ids: List[str], settings: dict) -> List[Dict]:
+    result = supabase.rpc('keyword_search_document_chunks',{
+        "query_text": query,
+        "filter_document_ids": document_ids,
+        "chunks_per_search":settings["chunks_per_search"]
+    }).execute()
+    return result.data if result.data else []
+
+class QueryVariations(BaseModel):
+    queries: List[str]
+
+def generate_query_variations(original_query: str, num_queries: int = 3) -> List[str]:
+    """Generate query variations using LLM"""
+    system_prompt = f"""Generate {num_queries-1} alternative ways to phrase this question for document search. Use different keywords and synonyms while maintaining the same intent. Return exactly {num_queries-1} variations."""
+
+    try:
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"Original query: {original_query}")
+        ]
+        
+        structured_llm = llm.with_structured_output(QueryVariations)
+        result = structured_llm.invoke(messages)
+        
+        return [original_query] + result.queries[:num_queries-1]
+    except Exception:
+        return [original_query]
+
 
 class sendMessageRequest(BaseModel):
     content: str
@@ -346,14 +416,55 @@ async def send_message(
         # 3. document IDs associated with this project
         document_ids = get_document_ids(project_id)
 
+        strategy = settings['rag_strategy']
+        print(f"\n RAG strategy: {strategy.upper()}")
         # 4. Generate the query embedding
         # 5. Perform vector search using the RPC function retrieve top k chunks
-        chunks = vector_search(message, document_ids, settings)
-        print(f"retrived {len(chunks)} relevant chunks from vector search")
+        if strategy == "basic":
+            chunks = vector_search(message, document_ids, settings)
+        elif strategy == "hybrid":
+            chunks = hybrid_search(message, document_ids, settings)
+        elif strategy == "multi-query-vector":
+            print(f"📈 Executing: Multi-Query Vector Search ({settings['number_of_queries']} queries)")
+            queries = generate_query_variations(message, settings['number_of_queries'])
+            print(f"🔄 Generated queries: {queries}")
+            all_results = []
+            for i, q in enumerate(queries):
+                results = vector_search(q, document_ids, settings)
+                print(f"📈 Query {i+1} '{q}' returned: {len(results)} chunks")
+                all_results.append(results)
+            chunks = rrf_rank_and_fuse(all_results)
+            print(f"🔗 RRF fusion returned: {len(chunks)} chunks")
+
+        elif strategy == 'multi-query-hybrid':
+            print(f"📈 Executing: Multi-Query Hybrid Search ({settings['number_of_queries']} queries, Vector + Keyword)")
+            queries = generate_query_variations(message, settings['number_of_queries'])
+            print(f"🔄 Generated queries: {queries}")
+            
+            # Stage 1: Per-query hybrid fusion
+            all_hybrid_results = []
+            for i, q in enumerate(queries):
+                print(f"\n  Query {i+1}: '{q}'")
+                
+                # Use the existing hybrid_search function which handles weights
+                hybrid_results = hybrid_search(q, document_ids, settings)
+                
+                print(f"Hybrid fusion returned: {len(hybrid_results)} chunks")
+                
+                all_hybrid_results.append(hybrid_results)
+            
+            # Stage 2: Cross-query fusion (equal weights across queries by default)
+            print(f"\nFinal RRF fusion across {len(all_hybrid_results)} queries")
+            chunks = rrf_rank_and_fuse(all_hybrid_results)
+            print(f"📊 Final result: {len(chunks)} chunks")
+        
+
+        chunks = chunks[:settings['final_context_size']]
+        print(f"trimmed to final context size: {len(chunks)} chnuks")
 
         # 6. Build context from retrieved chunks
         texts, images, tables, ciatations = build_context(chunks)
-        # validate_context(texts, images, tables, ciatations)
+        validate_context(texts, images, tables, ciatations)
 
         # 7. Build system prompt with injected context
         # 8. call llm and get response

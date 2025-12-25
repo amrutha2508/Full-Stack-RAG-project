@@ -156,7 +156,7 @@ def parition_document(temp_file:str, file_type:str, source_type:str="file"):
         return partition_md(
             filename=temp_file,
         )
-    elif file_type == "text":
+    elif file_type == "txt":
         return partition_text(
             filename=temp_file,
         )

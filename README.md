@@ -26,7 +26,11 @@ I will be building a Full stack RAG project where the users can upload pdfs, doc
 ### built-in functions:
     1. to_tsvector(config,text):convert text to tsvector - tsvector(stemmed, normalized, positioned) - ex: tsvector('english','your sentence')
     2. websearch_to_tsquery(config, query) - convert web search-style to tsquery config="english"
-    3. td_rank(tsvector, tsquery) - calculate relevance ranking
+    3. ts_rank_cd(tsvector, tsquery) - calculate relevance ranking
+        1. frequency = how many times query terms appear.
+        2. How close query terms are to each other.
+        3. where in the document terms appear 
+        4. what percentage of the document matches with the query. 
 3. provides an index to do full-text-search - gin(Generalized Inverted Index)
 
 
@@ -73,7 +77,14 @@ I will be building a Full stack RAG project where the users can upload pdfs, doc
     2. destroys current db
     3. creates fresh db.
     4. runs all migrations from scratch in order.
-
+5. **GIN = Generalized Inverted Index** - This index is specifically for full-text search queries
+    1. GIN stores an inverted index: for each word, it keeps a list of document IDs where it appears
+    2. Queries like @@ can quickly look up relevant documents without scanning the whole table
+    3. Great for large text datasets
+6. **HNSW = Hierarchical Navigable Small World graph**, vector_cosine_ops = operator class for cosine similarity (it indicates the similarity alogorithm that is the index will use). This index is for vector similarity search, <-> is the cosine distance operator
+    1. HNSW creates a graph of vectors, where nearby vectors are connected
+    2. When you query, it efficiently navigates the graph to find nearest neighbors
+    3. Sub-linear search time even for millions of vectors
 ## NextJS:
 ### Conventions to nextJS Routing:
 1. All routes must live inside the app folder.
@@ -159,9 +170,9 @@ You still use React to build the UI for both. Next.js just lets you decide which
 4. installations
     1. redis is not a python package, it is a separate service that needs to run on its own = 
     brew install redis (in terminal)
-    2. poetry add redis - celery app can use this to connect to redis server. To start redis server - "redis-server
+    2. poetry add redis - celery app can use this to connect to redis server. To start redis server - "redis-server"
     3. Celery is a python package = 
-    "poetry add celery" , to start a celery worker = "celery -A tasks worker --loglevel=info --pool=threads"
+    "poetry add celery" , to start a celery worker = "poetry run celery -A tasks worker --loglevel=info --pool=threads"
 5. the task_item's(that is going to be put inside of redis) structure is:
     task_data = {
         "task" : "process_document",
@@ -225,3 +236,4 @@ an Error: For langchain, a possible solution would be to set the `python` proper
     2. image/png - MIME type stands for Multipurpose Internet Mail Extensions type. It’s a standard label that tells systems what kind of data something is and how to interpret it.
     3. base64 - Encoding
     4. {image_base64} - Image data
+
