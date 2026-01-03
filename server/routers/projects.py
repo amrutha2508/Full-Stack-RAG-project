@@ -168,3 +168,30 @@ async def update_project_settings(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update project settings: {str(e)}")
+
+@router.get('/api/documents/{document_id}/chunks/{chunk_id}')
+async def get_chunk(
+    chunk_id: str,
+    document_id: str,
+    clerk_id: str = Depends(get_current_user) 
+):
+    try:
+        # Fetch chunk from Supabase where chunk_id AND document_id match
+        chunk_result = (
+            supabase.table("document_chunks")
+            .select("*")
+            .eq("id", chunk_id)
+            .eq("document_id", document_id)
+            .execute()
+        )
+
+        if not chunk_result.data:
+            raise HTTPException(status_code=404, detail="Chunk not found for the given document")
+
+        return {
+            "message": "Chunk fetched successfully",
+            "data": chunk_result.data[0]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch chunk: {str(e)}")

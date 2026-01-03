@@ -13,6 +13,8 @@ interface Message {
   chat_id: string;
   clerk_id: string;
   citations?: Array<{
+    chunk_id: string;
+    document_id: string;
     filename: string;
     page: number;
   }>;

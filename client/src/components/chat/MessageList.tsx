@@ -1,6 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessageItem } from "./MessageItem";
+import { CitationModal } from "./ciatationModal";
 import { FileText, Loader2 } from "lucide-react";
+import { apiClient } from "@/lib/api";
+
 
 interface Message {
   id: string;
@@ -10,6 +13,8 @@ interface Message {
   chat_id: string;
   clerk_id: string;
   citations?: Array<{
+    chunk_id: string;
+    document_id: string;
     filename: string;
     page: number;
   }>;
@@ -34,9 +39,17 @@ export function MessageList({
 }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const [selectedCitationDocumentId, setSelectedCitationDocumentId] = useState<string | number | null>(null);
+  const [selectedCitationChunkId, setSelectedCitationChunkId] = useState<string | number | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+
+
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
 
   useEffect(() => {
     scrollToBottom();
@@ -86,6 +99,11 @@ export function MessageList({
                             <div
                               key={citationIndex}
                               className="flex items-center gap-3 bg-[#252525] hover:bg-[#2a2a2a] rounded-lg px-3 py-2 border border-gray-700 hover:border-gray-600 transition-colors"
+                              onClick={() => {
+                                setSelectedCitationChunkId(citation.chunk_id);
+                                setSelectedCitationDocumentId(citation.document_id);
+                                setIsModalOpen(true);
+                              }}
                             >
                               {/* Document Icon */}
                               <div className="flex-shrink-0 w-7 h-7 bg-[#2a2a2a] border border-gray-600 rounded-md flex items-center justify-center">
@@ -113,6 +131,12 @@ export function MessageList({
                             </div>
                           ))}
                         </div>
+                        <CitationModal
+                          isOpen={isModalOpen}
+                          onClose={() => setIsModalOpen(false)}
+                          documentId={selectedCitationDocumentId} // pass current document
+                          chunkId={selectedCitationChunkId} // pass clicked chunk
+                        />
                       </div>
                     </div>
                   )}

@@ -2,11 +2,13 @@ import { useState, useEffect } from "react";
 import { Eye } from "lucide-react";
 
 interface DetailInspectorProps {
+  classDetail?: string; // optional width override
   selectedChunk: any;
   isProcessingComplete: boolean;
 }
 
 export function DetailInspector({
+  classDetail = "", // default width
   selectedChunk,
   isProcessingComplete,
 }: DetailInspectorProps) {
@@ -18,16 +20,16 @@ export function DetailInspector({
   }, [selectedChunk]);
 
   return (
-    <div className="w-[40%] bg-[#1e1e1e] border-l border-gray-700 flex flex-col">
+    <div className={`${classDetail} bg-[#1e1e1e] border-l border-gray-700 flex flex-col`}>
+      {/* Header */}
       <div className="p-4 border-b border-gray-700">
         <h4 className="font-medium text-gray-100">Detail Inspector</h4>
       </div>
 
       {selectedChunk ? (
         <div className="flex-1 overflow-y-auto">
-          {/* Tab Buttons for table and image chunks */}
-          {(selectedChunk?.type?.includes("table") ||
-            selectedChunk?.type?.includes("image")) && (
+          {/* Tab Buttons */}
+          {(selectedChunk?.type?.includes("table") || selectedChunk?.type?.includes("image")) && (
             <div className="p-4 border-b border-gray-700">
               <div className="flex gap-1">
                 <button
@@ -56,6 +58,7 @@ export function DetailInspector({
 
           {/* Content Area */}
           <div className="p-4">
+            {/* Summary Tab */}
             {detailTab === "summary" && (
               <div className="space-y-4">
                 <div className="flex gap-2 flex-wrap">
@@ -77,9 +80,7 @@ export function DetailInspector({
                 </div>
 
                 <div>
-                  <h5 className="text-sm font-medium text-gray-300 mb-2">
-                    Content
-                  </h5>
+                  <h5 className="text-sm font-medium text-gray-300 mb-2">Content</h5>
                   <div className="text-sm text-gray-400 bg-[#2a2a2a] p-3 rounded-lg border border-gray-600">
                     {selectedChunk.content}
                   </div>
@@ -87,65 +88,50 @@ export function DetailInspector({
               </div>
             )}
 
+            {/* Original Tab */}
             {detailTab === "original" && (
               <div className="space-y-4">
-                {/* Display original content */}
                 {selectedChunk.original_content?.text && (
                   <div>
-                    <h5 className="text-sm font-medium text-gray-300 mb-2">
-                      Original Text
-                    </h5>
+                    <h5 className="text-sm font-medium text-gray-300 mb-2">Original Text</h5>
                     <div className="text-sm text-gray-400 bg-[#2a2a2a] p-3 rounded-lg border border-gray-600 max-h-40 overflow-y-auto">
                       {selectedChunk.original_content.text}
                     </div>
                   </div>
                 )}
 
-                {/* Display tables */}
-                {selectedChunk.original_content?.tables &&
-                  selectedChunk.original_content.tables.length > 0 && (
-                    <div>
-                      <h5 className="text-sm font-medium text-gray-300 mb-2">
-                        Tables ({selectedChunk.original_content.tables.length})
-                      </h5>
-                      {selectedChunk.original_content.tables.map(
-                        (table: string, index: number) => (
-                          <div
-                            key={index}
-                            className="bg-[#2a2a2a] border border-gray-600 rounded-lg p-4 overflow-auto max-h-96 mb-2 text-xs text-gray-300"
-                            dangerouslySetInnerHTML={{
-                              __html: table || "No table data available",
-                            }}
-                          />
-                        )
-                      )}
-                    </div>
-                  )}
+                {selectedChunk.original_content?.tables?.length > 0 && (
+                  <div>
+                    <h5 className="text-sm font-medium text-gray-300 mb-2">
+                      Tables ({selectedChunk.original_content.tables.length})
+                    </h5>
+                    {selectedChunk.original_content.tables.map((table: string, index: number) => (
+                      <div
+                        key={index}
+                        className="bg-[#2a2a2a] border border-gray-600 rounded-lg p-4 overflow-auto max-h-96 mb-2 text-xs text-gray-300"
+                        dangerouslySetInnerHTML={{ __html: table || "No table data available" }}
+                      />
+                    ))}
+                  </div>
+                )}
 
-                {/* Display images */}
-                {selectedChunk.original_content?.images &&
-                  selectedChunk.original_content.images.length > 0 && (
-                    <div>
-                      <h5 className="text-sm font-medium text-gray-300 mb-2">
-                        Images ({selectedChunk.original_content.images.length})
-                      </h5>
-                      {selectedChunk.original_content.images.map(
-                        (image: string, index: number) => (
-                          <div
-                            key={index}
-                            className="bg-[#2a2a2a] border border-gray-600 rounded-lg p-4 mb-2"
-                          >
-                            <img
-                              src={`data:image/jpeg;base64,${image}`}
-                              alt={`Document image ${index + 1}`}
-                              className="max-w-full h-auto rounded"
-                              style={{ maxHeight: "300px" }}
-                            />
-                          </div>
-                        )
-                      )}
-                    </div>
-                  )}
+                {selectedChunk.original_content?.images?.length > 0 && (
+                  <div>
+                    <h5 className="text-sm font-medium text-gray-300 mb-2">
+                      Images ({selectedChunk.original_content.images.length})
+                    </h5>
+                    {selectedChunk.original_content.images.map((image: string, index: number) => (
+                      <div key={index} className="bg-[#2a2a2a] border border-gray-600 rounded-lg p-4 mb-2">
+                        <img
+                          src={`data:image/jpeg;base64,${image}`}
+                          alt={`Document image ${index + 1}`}
+                          className="max-w-full h-auto rounded"
+                          style={{ maxHeight: "300px" }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
