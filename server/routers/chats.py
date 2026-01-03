@@ -497,3 +497,23 @@ async def send_message(
     except Exception as e:
         print(f" Error in send_message:{str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/api/chats/{chat_id}")
+async def update_chat_title(
+    chat_id: str,
+    payload: dict,
+    clerk_id: str = Depends(get_current_user)
+):
+    result = (
+        supabase.table("chats")
+        .update({"title": payload["title"]})
+        .eq("id", chat_id)
+        .eq("clerk_id", clerk_id)
+        .execute()
+    )
+
+    if not result.data:
+        raise HTTPException(404, "Chat not found")
+
+    return {"message": "Title updated"}

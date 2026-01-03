@@ -1,9 +1,12 @@
 "use client";
-
+import { Pencil, Check, X } from "lucide-react";
+import { useState } from "react";
 import { MessageList } from "./MessageList";
 import { ChatInput } from "./ChatInput";
 import { ErrorDisplay } from "./ErrorDisplay";
 import { MessageSquare, Plus } from "lucide-react";
+import { apiClient } from "@/lib/api";
+import { useAuth } from "@clerk/nextjs";
 
 interface Message {
   id: string;
@@ -56,6 +59,27 @@ export function ChatInterface({
   agentStatus,
   onFeedback,
 }: ChatInterfaceProps) {
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(chat?.title || "");
+  const {getToken, userId} = useAuth() 
+
+  const handleSaveTitle = async () => {
+    if (!chat || titleDraft.trim() === chat.title) {
+      setIsEditingTitle(false);
+      return;
+    }
+
+    try {
+      // 🔹 call your API here
+      const token = await getToken();
+      await apiClient.put(`/api/chats/${chat.id}`, { title: titleDraft },token);
+
+      chat.title = titleDraft; // or lift state to parent
+      setIsEditingTitle(false);
+    } catch (err) {
+      console.error("Failed to update title", err);
+    }
+  };
   const handleSendMessage = async (content: string) => {
     await onSendMessage(content);
   };
@@ -75,9 +99,60 @@ export function ChatInterface({
 
                 {/* Chat Info */}
                 <div className="flex-1 min-w-0">
-                  <h1 className="font-medium text-gray-200 text-sm truncate">
-                    {chat?.title || "New Chat"}
-                  </h1>
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isEditingTitle ? (
+                      <>
+                        <input
+                          value={titleDraft}
+                          onChange={(e) => setTitleDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveTitle();
+                            if (e.key === "Escape") {
+                              setTitleDraft(chat?.title || "");
+                              setIsEditingTitle(false);
+                            }
+                          }}
+                          onBlur={handleSaveTitle}
+                          autoFocus
+                          className="bg-[#252525] border border-gray-700 rounded-md px-2 py-1 text-sm text-gray-200 w-full focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+
+                        <button
+                          onClick={handleSaveTitle}
+                          className="text-green-400 hover:text-green-300"
+                        >
+                          <Check size={14} />
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setTitleDraft(chat?.title || "");
+                            setIsEditingTitle(false);
+                          }}
+                          className="text-gray-400 hover:text-gray-300"
+                        >
+                          <X size={14} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <h1 className="font-medium text-gray-200 text-sm truncate">
+                          {chat?.title || "New Chat"}
+                        </h1>
+
+                        <button
+                          onClick={() => {
+                            setTitleDraft(chat?.title || "");
+                            setIsEditingTitle(true);
+                          }}
+                          className="text-gray-400 hover:text-gray-300"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+
                   <p className="text-xs text-gray-400">Project Chat</p>
                 </div>
               </div>
