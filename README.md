@@ -170,9 +170,9 @@ You still use React to build the UI for both. Next.js just lets you decide which
 4. installations
     1. redis is not a python package, it is a separate service that needs to run on its own = 
     brew install redis (in terminal)
-    2. poetry add redis - celery app can use this to connect to redis server. To start redis server - "redis-server"
+    2. poetry add redis - celery app can use this to connect to redis server. To start redis server - **"redis-server"**
     3. Celery is a python package = 
-    "poetry add celery" , to start a celery worker = "poetry run celery -A tasks worker --loglevel=info --pool=threads"
+    "poetry add celery" , to start a celery worker = **"poetry run celery -A tasks worker --loglevel=info --pool=threads"**
 5. the task_item's(that is going to be put inside of redis) structure is:
     task_data = {
         "task" : "process_document",
