@@ -1,3 +1,8 @@
+# Poetry
+poetry.lock
+# Uncomment the next line if you want to ignore poetry.lock
+# poetry.lock
+
 # Python
 __pycache__/
 *.py[cod]
@@ -16,48 +21,78 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
-# Virtual Environment
-venv/
-env/
-ENV/
-.venv/
+# Virtual Environments
 .env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
-# Environment Variables
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Environment variables
 .env
 .env.local
-.env.production
-.env.staging
-
-# Database
-*.db
-*.sqlite3
-instance/
-.db_data/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+.env.*.local
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
 # Logs
 *.log
 logs/
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
+# Database
+*.db
+*.sqlite
+*.sqlite3
 
-# FastAPI specific
-.pytest_cache
+# API keys and secrets
+secrets/
+*.pem
+*.key
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+

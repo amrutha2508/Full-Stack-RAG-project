@@ -19,7 +19,9 @@ dependencies = [
     "langchain (==0.3.27)",
     "langchain-community (==0.3.27)",
     "langchain-openai (==0.3.28)",
-    "unstructured[all-docs] (==0.18.11)"
+    "unstructured[all-docs] (==0.18.11)",
+    "ipykernel (>=7.1.0,<8.0.0)",
+    "langgraph (==1.0.0)"
 ]
 
 
