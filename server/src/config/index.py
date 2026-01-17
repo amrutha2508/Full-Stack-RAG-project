@@ -1,8 +1,17 @@
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# load_dotenv()
+# Project root = parent of src/
+project_root = Path(__file__).parent.parent.parent
+dotenv_path = project_root / ".env"
 
+# # Returns True if the file exists
+# print("Does .env exist?", dotenv_path.exists())
+
+# Load the env file
+load_dotenv(dotenv_path=dotenv_path)
 if not os.getenv("SUPABASE_API_URL") or not os.getenv("SUPABASE_SECRET_KEY"):
     raise ValueError(
         "SUPABASE_API_URL and SUPABASE_SECRET_KEY must be set in .env file"
@@ -27,8 +36,8 @@ if not os.getenv("REDIS_URL"):
 if not os.getenv("OPENAI_API_KEY"):
     raise ValueError("OPENAI_API_KEY must be set in .env file")
 
-if not os.getenv("SCRAPINGBEE_API_KEY"):
-    raise ValueError("SCRAPINGBEE_API_KEY must be set in .env file")
+# if not os.getenv("SCRAPINGBEE_API_KEY"):
+#     raise ValueError("SCRAPINGBEE_API_KEY must be set in .env file")
 
 appConfig = {
     "supabase_api_url": os.getenv("SUPABASE_API_URL"),
@@ -41,5 +50,5 @@ appConfig = {
     "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
     "redis_url": os.getenv("REDIS_URL"),
     "openai_api_key": os.getenv("OPENAI_API_KEY"),
-    "scrapingbee_api_key": os.getenv("SCRAPINGBEE_API_KEY"),
+    # "scrapingbee_api_key": os.getenv("SCRAPINGBEE_API_KEY"),
 }

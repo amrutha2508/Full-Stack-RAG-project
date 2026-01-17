@@ -1,5 +1,11 @@
 # Full-Stack-RAG-project
 
+## start code in terminals
+1. poetry run uvicorn src.server:app --reload --host 0.0.0.0 --port 8000
+2. redis-server
+3. poetry run celery -A src.services.celery.celery_app worker --loglevel=info --pool=threads
+4. npm run dev
+
 I will be building a Full stack RAG project where the users can upload pdfs, docx, ppts, txt, webscraping files and communicate with a RAG pipeline to get relevant answers.
 
 1. clerk : used as 3rd party authentication service.
@@ -239,3 +245,4 @@ an Error: For langchain, a possible solution would be to set the `python` proper
 
 
   
+
