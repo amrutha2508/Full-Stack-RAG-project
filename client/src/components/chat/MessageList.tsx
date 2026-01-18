@@ -21,6 +21,7 @@ interface Message {
 }
 
 interface MessageListProps {
+  project_id: string,
   messages: Message[];
   isLoading: boolean;
   streamingMessage?: string;
@@ -30,6 +31,7 @@ interface MessageListProps {
 }
 
 export function MessageList({
+  project_id,
   messages = [],
   isLoading,
   streamingMessage = "",
@@ -136,6 +138,7 @@ export function MessageList({
                           onClose={() => setIsModalOpen(false)}
                           documentId={selectedCitationDocumentId} // pass current document
                           chunkId={selectedCitationChunkId} // pass clicked chunk
+                          projectId={project_id}
                         />
                       </div>
                     </div>

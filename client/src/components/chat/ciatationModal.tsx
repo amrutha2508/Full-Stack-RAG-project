@@ -9,9 +9,10 @@ interface CitationModalProps {
   onClose: () => void;
   documentId: string | number | null; // new prop
   chunkId: string | number | null; // new prop
+  projectId: string | number | null; // new prop
 }
 
-export function CitationModal({ isOpen, onClose, documentId, chunkId }: CitationModalProps) {
+export function CitationModal({ isOpen, onClose, documentId, chunkId, projectId }: CitationModalProps) {
   const [chunk, setChunk] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const {getToken, userId} = useAuth() 
@@ -24,7 +25,7 @@ export function CitationModal({ isOpen, onClose, documentId, chunkId }: Citation
         try {
           const token = await getToken();
           const result = await apiClient.get(
-            `/api/documents/${documentId}/chunks/${chunkId}`,
+            `/api/projects/${projectId}/documents/${documentId}/chunks/${chunkId}`,
             token
           );
           console.log("result from getchunk:", result);
@@ -94,6 +95,7 @@ export function CitationModal({ isOpen, onClose, documentId, chunkId }: Citation
     {/* Right Pane: Detail Inspector */}
     <div className="w-[40%] h-full border-l border-gray-700 flex flex-col">
       <DetailInspector
+        classDetail=""
         selectedChunk={chunk}
         isProcessingComplete={!isLoading}
       />

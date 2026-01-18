@@ -25,7 +25,7 @@ interface Message {
 
 interface Chat {
   id: string;
-  project_id: string | null;
+  project_id: string;
   title: string;
   messages: Message[];
   created_at: string;
@@ -34,7 +34,7 @@ interface Chat {
 
 interface ChatInterfaceProps {
   chat?: Chat;
-  projectId?: string;
+  projectId: string;
   onSendMessage: (content: string) => Promise<void>;
   isLoading: boolean;
   error: string | null;
@@ -167,6 +167,7 @@ export function ChatInterface({
         {chat ? (
           <>
             <MessageList
+              project_id={projectId}
               messages={chat.messages}
               isLoading={isLoading}
               streamingMessage={streamingMessage}
