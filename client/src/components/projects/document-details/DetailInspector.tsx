@@ -20,7 +20,7 @@ export function DetailInspector({
   }, [selectedChunk]);
 
   return (
-    <div className={`${classDetail} bg-[#1e1e1e] border-l border-gray-700 flex flex-col`}>
+    <div className={`${classDetail} bg-[#1e1e1e] border-l border-gray-700 flex flex-col h-full`}>
       {/* Header */}
       <div className="p-4 border-b border-gray-700">
         <h4 className="font-medium text-gray-100">Detail Inspector</h4>

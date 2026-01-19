@@ -1,5 +1,7 @@
 # Full-Stack-RAG-project
 
+Demo video - https://drive.google.com/file/d/1I2epQIv0Ncm1rgdlzmeTRbFZg_Yi-fLI/view?usp=share_link
+
 ## start code in terminals
 1. poetry run uvicorn src.server:app --reload --host 0.0.0.0 --port 8000
 2. redis-server

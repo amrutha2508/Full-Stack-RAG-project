@@ -148,3 +148,22 @@ async def get_chat(
             status_code=500,
             detail=f"An internal server error occurred while getting chat {chat_id}: {str(e)}",
         )
+
+@router.put("/{chat_id}")
+async def update_chat_title(
+    chat_id: str,
+    payload: dict,
+    clerk_id: str = Depends(get_current_user_clerk_id)
+):
+    result = (
+        supabase.table("chats")
+        .update({"title": payload["title"]})
+        .eq("id", chat_id)
+        .eq("clerk_id", clerk_id)
+        .execute()
+    )
+
+    if not result.data:
+        raise HTTPException(404, "Chat not found")
+
+    return {"message": "Title updated"}
