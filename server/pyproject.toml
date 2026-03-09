@@ -28,6 +28,7 @@ ragas = "^0.4.0"
 datasets = "^4.4.1"
 pytest = "^9.0.2"
 structlog = "^24.4.0"
+openai = "^2.26.0"
 
 
 [build-system]
