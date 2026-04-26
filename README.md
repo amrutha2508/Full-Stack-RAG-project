@@ -3,10 +3,12 @@
 Demo video - https://drive.google.com/file/d/1I2epQIv0Ncm1rgdlzmeTRbFZg_Yi-fLI/view?usp=share_link
 
 ## start code in terminals
-1. poetry run uvicorn src.server:app --reload --host 0.0.0.0 --port 8000
-2. redis-server
-3. poetry run celery -A src.services.celery.celery_app worker --loglevel=info --pool=threads
-4. npm run dev
+1. server-side: 
+    1. have the docker database up and running
+    2. cd server
+    3. make -f scripts/mac.mk dev
+4. client side:
+    1. npm run dev
 
 I will be building a Full stack RAG project where the users can upload pdfs, docx, ppts, txt, webscraping files and communicate with a RAG pipeline to get relevant answers.
 

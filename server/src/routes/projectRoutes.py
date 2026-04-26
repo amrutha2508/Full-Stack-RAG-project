@@ -5,6 +5,8 @@ from src.models.index import ProjectCreate, ProjectSettings
 from src.models.index import MessageCreate, MessageRole
 from src.rag.retrieval.index import retrieve_context
 from src.rag.retrieval.utils import prepare_prompt_and_invoke_llm
+from src.agents.simple_agent.agent import create_simple_custom_agent
+from typing import List, Dict
 
 router = APIRouter(tags=["projectRoutes"])
 """
@@ -385,6 +387,51 @@ async def update_project_settings(
         )
 
 
+def get_chat_history(chat_id:str, exclude_message_id:str =None)-> List[Dict[str,str]]:
+    """
+        Retrieves the last 10 messages (5 user + 5 assistant) from the chat,
+        excluding the current message being processed.
+        
+        Args:
+            chat_id: The ID of the chat
+            exclude_message_id: Optional message ID to exclude from history
+            
+        Returns:
+            List of message dictionaries with 'role' and 'content' keys
+    """
+    try:
+        query = (
+            supabase.table("messages")
+            .select("id, role, content")
+            .eq("chat_id", chat_id)
+            .order("created_at", desc=False)
+        )
+        
+        # Exclude current message if provided
+        if exclude_message_id:
+            query = query.neq("id", exclude_message_id)
+        
+        messages_result = query.execute()
+        
+        if not messages_result.data:
+            return []
+        
+        # Get last 10 messages (limit to 10 total messages)
+        recent_messages = messages_result.data[-10:]
+        
+        # Format messages for agent
+        formatted_history = []
+        for msg in recent_messages:
+            formatted_history.append({
+                "role": msg.get("role", "user"),
+                "content": msg.get("content", "")
+            })
+        
+        return formatted_history
+    except Exception:
+        # If history retrieval fails, return empty list
+        return []
+
 @router.post("/{project_id}/chats/{chat_id}/messages")
 async def send_message(
     project_id: str,
@@ -402,9 +449,9 @@ async def send_message(
     """
     try:
         # Step 1 : Insert the message into the database.
-        message = message.content
+        message_content = message.content
         message_insert_data = {
-            "content": message,
+            "content": message_content,
             "chat_id": chat_id,
             "clerk_id": current_user_clerk_id,
             "role": MessageRole.USER.value,
@@ -416,13 +463,53 @@ async def send_message(
         if not message_creation_result.data:
             raise HTTPException(status_code=422, detail="Failed to create message")
 
-        # Step 3 : Retrieval
-        texts, images, tables, citations = retrieve_context(project_id, message)
+        current_message_id = message_creation_result.data[0]["id"]
 
-        # Step 4 : Generation (Retrived Context + User Message)
-        final_response = prepare_prompt_and_invoke_llm(
-            user_query=message, texts=texts, images=images, tables=tables
-        )
+        # Step 2: Get project settings to retrieve agent_type
+        try: 
+            project_settings = await get_project_settings(project_id, current_user_clerk_id)
+            agent_type = project_settings["data"].get("agent_type","simple")
+        except Exception as e:
+            agent_type = "simple"
+
+        chat_history = get_chat_history(chat_id, exclude_message_id = current_message_id)
+
+        if agent_type == "simple":
+            agent = create_simple_custom_agent(
+                project_id=project_id,
+                # model="gpt-4o",
+                chat_history=chat_history
+            )
+        elif agent_type == "agentic":
+            agent = create_simple_custom_agent(
+                project_id=project_id,
+                # model="gpt-4o",
+                chat_history=chat_history
+            )
+
+        print("agent_type: ", agent_type)
+        print("message_content: ", message_content)
+        # result = await agent.ainvoke({
+        #     "messages": [HumanMessage(content=message_content)]
+        # })
+        try:
+            result = await agent.ainvoke({"messages": [{"role": "user", "content": message_content}]})
+        except Exception as e:
+            print(f"ALARM: Agent failed with error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+        print("agent result: ", result)
+        
+        # # Step 3 : Retrieval
+        # texts, images, tables, citations = retrieve_context(project_id, message)
+
+        # # Step 4 : Generation (Retrived Context + User Message)
+        # final_response = prepare_prompt_and_invoke_llm(
+        #     user_query=message, texts=texts, images=images, tables=tables
+        # )
+        final_response = result["messages"][-1].content
+        citations = result.get("citations",[])
+    
 
         # Step 5: Insert the AI Response into the database.
         ai_response_insert_data = {

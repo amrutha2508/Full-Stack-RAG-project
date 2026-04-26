@@ -8,7 +8,7 @@ from src.rag.retrieval.utils import (
     generate_query_variations,
 )
 from typing import List, Dict
-from src.rag.retrieval.utils import rrf_rank_and_fuse
+from src.rag.retrieval.utils import rrf_rank_and_fuse, validate_context_from_retrieved_chunks
 
 
 def retrieve_context(project_id, user_query):
@@ -62,7 +62,8 @@ def retrieve_context(project_id, user_query):
 
         # Step 9: Build the context from the retrieved chunks and format them into a structured context with citations.
         texts, images, tables, citations = build_context_from_retrieved_chunks(chunks)
-        # validate_context_from_retrieved_chunks(texts, images, tables, citations)
+        print(f"context build results = texts:{len(texts)}, images:{len(images)}, tables:{len(tables)}, citations:{len(citations)}")
+        validate_context_from_retrieved_chunks(texts, images, tables, citations)
 
         return texts, images, tables, citations
     except Exception as e:
