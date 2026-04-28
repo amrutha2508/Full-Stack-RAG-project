@@ -22,6 +22,7 @@ class CustomAgentState(TypedDict):
     """ Extended agent state with ciatations """
     messages: Annotated[list, add_messages]
     citations: Annotated[List[Dict[str, Any]],lambda x, y: x+y] = []
+    # guardrail_passed: bool
 
 # =============================================================================
 # PROMPTS
@@ -86,10 +87,55 @@ def get_system_prompt(chat_history: Optional[List[Dict[str,str]]]=None) -> str:
 
     return prompt 
 
+# def should_continue(state: CustomAgentState) -> Literal["agent", "__end__"]:
+#     """
+#     Determine routing based on guardrail check.
+    
+#     Args:
+#         state: Current agent state
+        
+#     Returns:
+#         "agent" if guardrail passed, END if failed
+#     """
+#     if state.get("guardrail_passed", True):
+#         return "agent"
+#     return END
+
+
 
 # =============================================================================
 # GUARDRAILS
 # =============================================================================
+# def check_input_guardrails(user_message: str) -> InputGuardrailCheck:
+#     """
+#     Check input for toxicity, prompt injection, and PII using structured output.
+    
+#     Args:
+#         user_message: The user's input message to validate
+        
+#     Returns:
+#         InputGuardrailCheck object with safety assessment
+#     """
+#     prompt = f"""Analyze this user input for safety issues:
+    
+#     Input: {user_message}
+    
+#     Determine:
+#     - is_toxic: Contains harmful, offensive, or toxic content
+#     - is_prompt_injection: Attempts to manipulate system behavior or inject prompts
+#     - contains_pii: Contains personal information (emails, phone numbers, SSN, etc.)
+#     - is_safe: Overall safety (false if ANY of the above are true)
+#     - reason: If unsafe, explain why briefly
+#     """
+
+#     mini_llm = openAI["mini_llm"]
+
+#     # Use with_structured_output (OpenAI models support this)
+#     structured_llm = mini_llm.with_structured_output(InputGuardrailCheck)
+#     result = structured_llm.invoke(prompt)
+    
+#     return result
+
 
 
 # =============================================================================
@@ -181,6 +227,76 @@ def create_rag_tool(project_id: str):
 
     return rag_search
 
+
+# =============================================================================
+# GRAPH NODES
+# =============================================================================
+
+async def call_model(state: CustomAgentState):
+    print("inside model node")
+    messages = [SystemMessage(content= system_prompt)] + state["messages"]
+    print("messages:", messages)
+    result = await llm_with_tools.ainvoke(messages)
+    print("model result: ", result)
+    return {
+        "messages": [result]
+    }
+
+async def tools_router(state: CustomAgentState):
+    print("inside tools_router")
+    last_message = state["messages"][-1]
+
+    if(hasattr(last_message, "tool_calls") and len(last_message.tool_calls) > 0):
+        return "tool_node"
+    else: 
+        return END
+
+async def tool_node(state: CustomAgentState):
+    print("inside tool_node")
+    tool_calls = state["messages"][-1].tool_calls
+    tool_messages = []
+    citations = [] 
+
+    for tool_call in tool_calls:
+        print("-"*20, "tool_call","-"*20)
+        print(tool_call)
+        tool_name = tool_call["name"]
+        tool_args = tool_call["args"]
+        tool_id = tool_call.get("id") or tool_call.get("tool_call_id")
+
+        if tool_name == rag_tool.name:
+            clean_args = {k: v for k, v in tool_args.items() if k != "tool_call_id"}
+            command = await rag_tool.ainvoke({
+                "args":clean_args,
+                "name":tool_name,
+                "type":"tool_call", 
+                "id":tool_id}) # rag_search returns a command 
+            update = command.update if hasattr(command, "update") else command
+            tool_messages.extend(update.get("messages",[]))
+            citations.extend(update.get("citations",[]))
+
+    print("-"*20, "tool_call ends", "-"*20)
+    return {"messages": tool_messages, "citations": citations}
+
+# async def guardrail_node(state: CustomAgentState) -> Dict[str, Any]:
+#     """Validate user input for safety before processing."""
+#     # Get the last user message
+#     user_message = state["messages"][-1].content
+    
+#     # Check safety (Assuming this might be an async call to a safety model)
+#     safety_check = await check_input_guardrails(user_message) 
+    
+#     if not safety_check.is_safe:
+#         return {
+#             "messages": [
+#                 AIMessage(content=f"I cannot process this request. {safety_check.reason}")
+#             ],
+#             "guardrail_passed": False
+#         }
+    
+#     return {"guardrail_passed": True}
+
+
 def create_simple_custom_agent(
     project_id: str,
     # model_name: str = "gpt-4o",
@@ -211,59 +327,25 @@ def create_simple_custom_agent(
     system_prompt = get_system_prompt(chat_history=chat_history)
     llm_with_tools = llm.bind_tools(tools=tools)
 
-    async def call_model(state: CustomAgentState):
-        print("inside model node")
-        messages = [SystemMessage(content= system_prompt)] + state["messages"]
-        print("messages:", messages)
-        result = await llm_with_tools.ainvoke(messages)
-        print("model result: ", result)
-        return {
-            "messages": [result]
-        }
-
-    async def tools_router(state: CustomAgentState):
-        print("inside tools_router")
-        last_message = state["messages"][-1]
-
-        if(hasattr(last_message, "tool_calls") and len(last_message.tool_calls) > 0):
-            return "tool_node"
-        else: 
-            return END
-
-    async def tool_node(state: CustomAgentState):
-        print("inside tool_node")
-        tool_calls = state["messages"][-1].tool_calls
-        tool_messages = []
-        citations = [] 
-
-        for tool_call in tool_calls:
-            print("-"*20, "tool_call","-"*20)
-            print(tool_call)
-            tool_name = tool_call["name"]
-            tool_args = tool_call["args"]
-            tool_id = tool_call.get("id") or tool_call.get("tool_call_id")
-
-            if tool_name == rag_tool.name:
-                clean_args = {k: v for k, v in tool_args.items() if k != "tool_call_id"}
-                command = await rag_tool.ainvoke({
-                    "args":clean_args,
-                    "name":tool_name,
-                    "type":"tool_call", 
-                    "id":tool_id}) # rag_search returns a command 
-                update = command.update if hasattr(command, "update") else command
-                tool_messages.extend(update.get("messages",[]))
-                citations.extend(update.get("citations",[]))
-
-        print("-"*20, "tool_call ends", "-"*20)
-        return {"messages": tool_messages, "citations": citations}
-
     graph = StateGraph(CustomAgentState)
 
+    # graph.add_node("guardrail", guardrail_node)
     graph.add_node("model", call_model)
     graph.add_node("tool_node", tool_node)
+
     graph.set_entry_point("model")
+    # graph.set_entry_point("guardrail")
     graph.add_conditional_edges("model", tools_router)
+    # graph.add_conditional_edges(
+    #     "guardrail",
+    #     should_continue,
+    #     {
+    #         "model": "model", 
+    #         END: END
+    #     }
+    # )
     graph.add_edge("tool_node", "model")
+    
 
     agent = graph.compile().with_config({"recursion_limit":5})
 
