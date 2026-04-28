@@ -232,51 +232,7 @@ def create_rag_tool(project_id: str):
 # GRAPH NODES
 # =============================================================================
 
-async def call_model(state: CustomAgentState):
-    print("inside model node")
-    messages = [SystemMessage(content= system_prompt)] + state["messages"]
-    print("messages:", messages)
-    result = await llm_with_tools.ainvoke(messages)
-    print("model result: ", result)
-    return {
-        "messages": [result]
-    }
 
-async def tools_router(state: CustomAgentState):
-    print("inside tools_router")
-    last_message = state["messages"][-1]
-
-    if(hasattr(last_message, "tool_calls") and len(last_message.tool_calls) > 0):
-        return "tool_node"
-    else: 
-        return END
-
-async def tool_node(state: CustomAgentState):
-    print("inside tool_node")
-    tool_calls = state["messages"][-1].tool_calls
-    tool_messages = []
-    citations = [] 
-
-    for tool_call in tool_calls:
-        print("-"*20, "tool_call","-"*20)
-        print(tool_call)
-        tool_name = tool_call["name"]
-        tool_args = tool_call["args"]
-        tool_id = tool_call.get("id") or tool_call.get("tool_call_id")
-
-        if tool_name == rag_tool.name:
-            clean_args = {k: v for k, v in tool_args.items() if k != "tool_call_id"}
-            command = await rag_tool.ainvoke({
-                "args":clean_args,
-                "name":tool_name,
-                "type":"tool_call", 
-                "id":tool_id}) # rag_search returns a command 
-            update = command.update if hasattr(command, "update") else command
-            tool_messages.extend(update.get("messages",[]))
-            citations.extend(update.get("citations",[]))
-
-    print("-"*20, "tool_call ends", "-"*20)
-    return {"messages": tool_messages, "citations": citations}
 
 # async def guardrail_node(state: CustomAgentState) -> Dict[str, Any]:
 #     """Validate user input for safety before processing."""
@@ -328,6 +284,56 @@ def create_simple_custom_agent(
     llm_with_tools = llm.bind_tools(tools=tools)
 
     graph = StateGraph(CustomAgentState)
+
+    # =============================================================================
+    # GRAPH NODES
+    # =============================================================================
+
+
+    async def call_model(state: CustomAgentState):
+        print("inside model node")
+        messages = [SystemMessage(content= system_prompt)] + state["messages"]
+        print("messages:", messages)
+        result = await llm_with_tools.ainvoke(messages)
+        print("model result: ", result)
+        return {
+            "messages": [result]
+        }
+    async def tools_router(state: CustomAgentState):
+        print("inside tools_router")
+        last_message = state["messages"][-1]
+
+        if(hasattr(last_message, "tool_calls") and len(last_message.tool_calls) > 0):
+            return "tool_node"
+        else: 
+            return END
+
+    async def tool_node(state: CustomAgentState):
+        print("inside tool_node")
+        tool_calls = state["messages"][-1].tool_calls
+        tool_messages = []
+        citations = [] 
+
+        for tool_call in tool_calls:
+            print("-"*20, "tool_call","-"*20)
+            print(tool_call)
+            tool_name = tool_call["name"]
+            tool_args = tool_call["args"]
+            tool_id = tool_call.get("id") or tool_call.get("tool_call_id")
+
+            if tool_name == rag_tool.name:
+                clean_args = {k: v for k, v in tool_args.items() if k != "tool_call_id"}
+                command = await rag_tool.ainvoke({
+                    "args":clean_args,
+                    "name":tool_name,
+                    "type":"tool_call", 
+                    "id":tool_id}) # rag_search returns a command 
+                update = command.update if hasattr(command, "update") else command
+                tool_messages.extend(update.get("messages",[]))
+                citations.extend(update.get("citations",[]))
+
+        print("-"*20, "tool_call ends", "-"*20)
+        return {"messages": tool_messages, "citations": citations}
 
     # graph.add_node("guardrail", guardrail_node)
     graph.add_node("model", call_model)
