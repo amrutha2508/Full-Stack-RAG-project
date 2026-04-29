@@ -48,7 +48,7 @@ function ProjectsPage() {
       setProjects(data);
     } catch(err){
       console.log('Error loading project:',err);
-      toast.error('Failed to create project');
+      toast.error('Failed to load projects');
     } finally {
       setLoading(false);
     }

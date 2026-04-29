@@ -8,12 +8,25 @@ from clerk_backend_api.security.types import AuthenticateRequestOptions
 
 def get_current_user_clerk_id(request: Request):
     try:
+        print("inside get_cuurent_clerk_id")
         sdk = Clerk(appConfig["clerk_secret_key"])
+
+        domain = appConfig["domain"]
+        if isinstance(domain, str):
+            domain = [domain]
+        # 🔍 ADD LOGS HERE
+        print("DOMAIN CONFIG:", appConfig["domain"])
+               
+        print("Request", request)
+        print("AUTH HEADER:", request.headers.get("authorization"))
+        print("HOST HEADER:", request.headers.get("host"))
+
+        print("appConfig['domain']:",appConfig["domain"])
 
         # request_state = JWT Token
         request_state = sdk.authenticate_request(
             request,
-            options=AuthenticateRequestOptions(authorized_parties=appConfig["domain"]),
+            options=AuthenticateRequestOptions(authorized_parties=domain),
         )
 
         if not request_state.is_signed_in:
