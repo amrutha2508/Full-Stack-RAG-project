@@ -95,6 +95,7 @@ export function CitationModal({ isOpen, onClose, documentId, chunkId, projectId 
     {/* Right Pane: Detail Inspector */}
     <div className="w-[40%] h-full border-l border-gray-700 flex flex-col">
       <DetailInspector
+        key = {chunk?.id}
         classDetail=""
         selectedChunk={chunk}
         isProcessingComplete={!isLoading}

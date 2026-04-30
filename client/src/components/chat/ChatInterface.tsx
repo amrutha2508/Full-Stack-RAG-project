@@ -62,6 +62,8 @@ export function ChatInterface({
 }: ChatInterfaceProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(chat?.title || "");
+  const [localTitle, setLocalTitle] = useState(chat?.title ?? "");
+
   const {getToken, userId} = useAuth() 
 
   const handleSaveTitle = async () => {
@@ -74,8 +76,9 @@ export function ChatInterface({
       // 🔹 call your API here
       const token = await getToken();
       await apiClient.put(`/api/chats/${chat.id}`, { title: titleDraft },token);
-
-      chat.title = titleDraft; // or lift state to parent
+      
+      setLocalTitle(titleDraft);
+      // chat.title = titleDraft; // or lift state to parent
       setIsEditingTitle(false);
     } catch (err) {
       console.error("Failed to update title", err);
@@ -195,8 +198,7 @@ export function ChatInterface({
                 Ready to start?
               </h2>
               <p className="text-gray-400 mb-8 leading-relaxed">
-                I can help you analyze your documents, answer questions, and
-                provide insights based on your project's knowledge base.
+               {" I can help you analyze your documents, answer questions, and provide insights based on your project's knowledge base."}
               </p>
 
               {/* Features List */}

@@ -69,8 +69,7 @@ export function MessageList({
               Start a conversation
             </h3>
             <p className="text-gray-400 leading-relaxed">
-              Ask me anything about your documents and I'll help you find the
-              answers.
+              {"Ask me anything about your documents and I'll help you find the answers."}
             </p>
           </div>
         </div>

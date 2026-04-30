@@ -14,10 +14,10 @@ export function DetailInspector({
 }: DetailInspectorProps) {
   const [detailTab, setDetailTab] = useState<"summary" | "original">("summary");
 
-  // Reset to summary when chunk changes
-  useEffect(() => {
-    setDetailTab("summary");
-  }, [selectedChunk]);
+  // // Reset to summary when chunk changes
+  // useEffect(() => {
+  //   setDetailTab("summary");
+  // }, [selectedChunk]);
 
   return (
     <div className={`${classDetail} bg-[#1e1e1e] border-l border-gray-700 flex flex-col h-full`}>

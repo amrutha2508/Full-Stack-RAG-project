@@ -60,5 +60,5 @@ export interface ProjectDocument {
   created_at: string;
   source_type: string;
   source_url?: string;
-  processing_details: any;
+  processing_details: unknown;
 }

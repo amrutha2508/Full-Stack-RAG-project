@@ -199,6 +199,7 @@ export function FileDetailsModal({ document, onClose }: FileDetailsModalProps) {
         {/* Detail Inspector */}
         <div className="w-[40%] h-full border-l border-gray-700 flex flex-col">
           <DetailInspector
+            key = {selectedChunk?.id}
             selectedChunk={selectedChunk}
             isProcessingComplete={isProcessingComplete}
             classDetail=""

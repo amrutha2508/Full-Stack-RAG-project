@@ -19,7 +19,7 @@ export const apiClient = {
         }
         return response.json();
     },
-    post: async(endpoint:string, data:any, token?:string | null) => {
+    post: async(endpoint:string, data:unknown, token?:string | null) => {
         const headers:HeadersInit = {
             "Content-type":"application/json", 
         }
@@ -50,7 +50,7 @@ export const apiClient = {
         }
           return response.json();
     },
-    put: async(endpoint:string, data:any, token?:string | null) => {
+    put: async(endpoint:string, data:unknown, token?:string | null) => {
         const headers:HeadersInit = {
             "Content-type":"application/json", 
         }
