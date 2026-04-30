@@ -9,7 +9,8 @@ from src.routes.chatRoutes import router as chatRoutes
 app = FastAPI(
     title = "RAG Application",
     description = "Backend API for RAG Application",
-    version = "1.0.0"
+    version = "1.0.0",
+    redirect_slashes=False
 )
 
 # Configure CORS
