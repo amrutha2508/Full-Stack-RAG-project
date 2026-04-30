@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+
 from src.routes.userRoutes import router as userRoutes
 from src.routes.projectRoutes import router as projectRoutes
 from src.routes.projectFilesRoutes import router as projectFilesRoutes
@@ -10,8 +12,10 @@ app = FastAPI(
     title = "RAG Application",
     description = "Backend API for RAG Application",
     version = "1.0.0",
-    redirect_slashes=False
 )
+
+# Add HTTPS redirect middleware FIRST
+app.add_middleware(HTTPSRedirectMiddleware)
 
 # Configure CORS
 app.add_middleware(
