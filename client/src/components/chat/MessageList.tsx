@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MessageItem } from "./MessageItem";
 import { CitationModal } from "./ciatationModal";
 import { FileText, Loader2 } from "lucide-react";
-import { apiClient } from "@/lib/api";
+// import { apiClient } from "@/lib/api";
 
 
 interface Message {

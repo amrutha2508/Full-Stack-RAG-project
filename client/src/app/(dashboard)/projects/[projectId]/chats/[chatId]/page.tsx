@@ -9,6 +9,8 @@ import { MessageFeedbackModal } from "@/components/chat/MessageFeedbackModel";
 import toast from "react-hot-toast";
 import { NotFound } from "@/components/ui/NotFound";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { Message } from "@/lib/types";
+
 
 interface ProjectChatPageProps {
   params: Promise<{
@@ -93,7 +95,7 @@ export default function ProjectChatPage({ params }: ProjectChatPageProps) {
       });
 
       toast.success("Message sent");
-    } catch (err) {
+    } catch (_err) {
       setSendMessageError("Failed to send message");
       toast.error("Failed to send message");
 
@@ -136,7 +138,7 @@ export default function ProjectChatPage({ params }: ProjectChatPageProps) {
       );
 
       toast.success("Thanks for your feedback!");
-    } catch (error) {
+    } catch (_error) {
       toast.error("Failed to submit feedback. Please try again.");
     } finally {
       setFeedbackModal(null);
@@ -156,7 +158,7 @@ export default function ProjectChatPage({ params }: ProjectChatPageProps) {
 
         setCurrentChatData(chatData);
         toast.success("Chat loaded");
-      } catch (err) {
+      } catch (_err) {
         toast.error("Failed to load chat. Please try again.");
       } finally {
         setIsLoadingChatData(false);

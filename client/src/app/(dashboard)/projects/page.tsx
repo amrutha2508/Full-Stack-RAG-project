@@ -8,7 +8,7 @@ import { CreateProjectModal } from "@/components/projects/CreateProjectModal";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { apiClient } from "@/lib/api";
 import toast from "react-hot-toast" // a pop up messages showing up at top corner like your project is deleted, created etc.
-import { get } from "http";
+
 // this toast import is just a method to invoke a toast component which can be foundin the layout.tsx of the client-side
 interface Project {
   id: string,

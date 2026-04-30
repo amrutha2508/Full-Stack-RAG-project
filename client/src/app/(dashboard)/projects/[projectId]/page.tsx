@@ -9,7 +9,7 @@ import { apiClient } from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { NotFound } from '@/components/ui/NotFound';
 import toast from "react-hot-toast";
-import { Users } from 'lucide-react';
+// import { Users } from 'lucide-react';
 import { Project, ProjectDocument, ProjectSettings, Chat} from "@/lib/types"
 import { useRouter } from 'next/navigation';
 
@@ -71,7 +71,7 @@ function ProjectPage({params}: ProjectPageProps) {
                 })
             } catch(err) {
                 setError('Failed to fetch data')
-                console.error("Failed to fetch data", err);
+                // console.error("Failed to fetch data", err);
                 toast.error("Failed to create project");
 
             } finally {
@@ -315,7 +315,7 @@ function ProjectPage({params}: ProjectPageProps) {
                     />
                 </div>
             </div>
-            {selectedDocumentId && 
+            {selectedDocumentId && selectedDocument && 
                 <FileDetailsModal 
                     document={selectedDocument}
                     onClose={()=>setSelectedDocumentId(null)}

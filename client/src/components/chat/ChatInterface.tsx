@@ -7,6 +7,7 @@ import { ErrorDisplay } from "./ErrorDisplay";
 import { MessageSquare, Plus } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@clerk/nextjs";
+import { ChatWithMessages } from "@/lib/types";
 
 interface Message {
   id: string;
@@ -23,17 +24,17 @@ interface Message {
   }>;
 }
 
-interface Chat {
-  id: string;
-  project_id: string;
-  title: string;
-  messages: Message[];
-  created_at: string;
-  clerk_id: string;
-}
+// interface Chat {
+//   id: string;
+//   project_id: string;
+//   title: string;
+//   messages: Message[];
+//   created_at: string;
+//   clerk_id: string;
+// }
 
 interface ChatInterfaceProps {
-  chat?: Chat;
+  chat?: ChatWithMessages;
   projectId: string;
   onSendMessage: (content: string) => Promise<void>;
   isLoading: boolean;
