@@ -9,8 +9,10 @@ export const apiClient = {
         if(token) {
             headers['Authorization'] = `Bearer ${token}`;
         }
+        // ✅ Ensure endpoint always has trailing slash
+        const normalizedEndpoint = endpoint.endsWith("/") ? endpoint : `${endpoint}/`;
         // below is calling the backend server projects.py
-        const response = await fetch(`${API_BASE_URL}${endpoint}`,{
+        const response = await fetch(`${API_BASE_URL}${normalizedEndpoint}`,{
             headers
         });
         if(!response.ok){
