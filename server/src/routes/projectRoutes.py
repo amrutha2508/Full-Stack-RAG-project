@@ -27,6 +27,7 @@ router = APIRouter(tags=["projectRoutes"])
 
 
 @router.get("/")
+@router.get("")
 async def get_projects(current_user_clerk_id: str = Depends(get_current_user_clerk_id)):
     """
     ! Logic Flow
@@ -58,6 +59,7 @@ async def get_projects(current_user_clerk_id: str = Depends(get_current_user_cle
 
 
 @router.post("/")
+@router.post("")
 async def create_project(
     project_data: ProjectCreate,
     current_user_clerk_id: str = Depends(get_current_user_clerk_id),
