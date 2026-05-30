@@ -50,5 +50,5 @@ appConfig = {
     "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
     "redis_url": os.getenv("REDIS_URL"),
     "openai_api_key": os.getenv("OPENAI_API_KEY"),
-    # "scrapingbee_api_key": os.getenv("SCRAPINGBEE_API_KEY"),
+    "scrapingbee_api_key": os.getenv("SCRAPINGBEE_API_KEY"),
 }

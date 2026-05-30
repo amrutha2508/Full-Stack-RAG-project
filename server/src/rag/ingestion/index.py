@@ -13,7 +13,7 @@ from src.rag.ingestion.utils import (
 )
 from src.models.index import ProcessingStatus
 from unstructured.chunking.title import chunk_by_title
-# from src.services.webScrapper import scrapingbee_client
+from src.services.webSrapper import scrapingbee_client
 
 
 def process_document(document_id: str):
@@ -162,16 +162,16 @@ def download_content_and_partition(document_id: str, document: dict):
 
             elements = partition_document(temp_file_path, file_type)
 
-        # if document_source_type == "url":
+        if document_source_type == "url":
 
-            # url = document["source_url"]
-            # # Crawl the URL
-            # response = scrapingbee_client.get(url)
-            # temp_file_path = f"/tmp/{document_id}.html"
-            # with open(temp_file_path, "wb") as f:
-            #     f.write(response.content)
+            url = document["source_url"]
+            # Crawl the URL
+            response = scrapingbee_client.get(url)
+            temp_file_path = f"/tmp/{document_id}.html"
+            with open(temp_file_path, "wb") as f:
+                f.write(response.content)
 
-            # elements = partition_document(temp_file_path, "html", source_type="url")
+            elements = partition_document(temp_file_path, "html", source_type="url")
 
         elements_summary = analyze_elements(elements)
 
