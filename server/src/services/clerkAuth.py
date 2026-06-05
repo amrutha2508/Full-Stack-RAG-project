@@ -15,13 +15,13 @@ def get_current_user_clerk_id(request: Request):
         if isinstance(domain, str):
             domain = [domain]
         # 🔍 ADD LOGS HERE
-        print("DOMAIN CONFIG:", appConfig["domain"])
+        # print("DOMAIN CONFIG:", appConfig["domain"])
                
-        print("Request", request)
-        print("AUTH HEADER:", request.headers.get("authorization"))
-        print("HOST HEADER:", request.headers.get("host"))
+        # print("Request", request)
+        # print("AUTH HEADER:", request.headers.get("authorization"))
+        # print("HOST HEADER:", request.headers.get("host"))
 
-        print("appConfig['domain']:",appConfig["domain"])
+        # print("appConfig['domain']:",appConfig["domain"])
 
         # request_state = JWT Token
         request_state = sdk.authenticate_request(
