@@ -6,6 +6,7 @@ from src.models.index import MessageCreate, MessageRole
 from src.rag.retrieval.index import retrieve_context
 from src.rag.retrieval.utils import prepare_prompt_and_invoke_llm
 from src.agents.simple_agent.agent import create_simple_custom_agent
+from src.agents.supervisor_agent.agent import create_supervisor_agent
 from typing import List, Dict
 
 router = APIRouter(tags=["projectRoutes"])
@@ -483,7 +484,7 @@ async def send_message(
                 chat_history=chat_history
             )
         elif agent_type == "agentic":
-            agent = create_simple_custom_agent(
+            agent = create_supervisor_agent(
                 project_id=project_id,
                 # model="gpt-4o",
                 chat_history=chat_history
