@@ -7,6 +7,7 @@ from src.config.index import appConfig
 from src.services.awsS3 import s3_client
 import uuid
 from src.services.celery import perform_rag_ingestion_task
+import os
 
 
 router = APIRouter(tags=["projectFilesRoutes"])
@@ -179,7 +180,9 @@ async def confirm_file_upload_to_s3(
     * 6. Return successfully confirmed file upload data
     """
     try:
+        print("inside confirm_file_upload_to_s3")
         s3_key = confirm_file_upload_request.get("s3_key")
+        print("s3_key in file_upload_request:", s3_key)
         if not s3_key:
             raise HTTPException(
                 status_code=400,
@@ -189,19 +192,44 @@ async def confirm_file_upload_to_s3(
         # Verify file exists in database
         document_verification_result = (
             supabase.table("project_documents")
-            .select("id")
+            .select("id, filename")
             .eq("s3_key", s3_key)
             .eq("project_id", project_id)
             .eq("clerk_id", current_user_clerk_id)
             .execute()
         )
+    
+        print("document_verification_result:", document_verification_result.data)
 
         if not document_verification_result.data:
             raise HTTPException(
                 status_code=404,
                 detail="File not found or you don't have permission to confirm upload to S3 for this file",
             )
+        document_id = document_verification_result.data[0]["id"]
+        filename = document_verification_result.data[0]["filename"]
+        # Determine file type extension
+        _, ext = os.path.splitext(filename.lower())
+        print("document_id:", document_id)
+        print("filename:", filename)
+        print("extension:", ext)
 
+        # 2. Handle Tabular Files (.csv, .sqlite, .db) differently
+        if ext in [".csv", ".sqlite", ".db"]:
+            # Update database to mark as ready/completed immediately for Tabular files
+            # No Celery RAG background task is triggered.
+            document_update_result = (
+                supabase.table("project_documents")
+                .update({"processing_status": ProcessingStatus.COMPLETED}) # directly complete
+                .eq("id", document_id)
+                .execute()
+            )
+            
+            return {
+                "message": "Tabular file confirmed successfully and registered for Data Analysis Engine.",
+                "data": document_update_result.data[0],
+            }
+        
         # Update file status to "queued"
         document_update_result = (
             supabase.table("project_documents")
