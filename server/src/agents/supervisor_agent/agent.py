@@ -2,6 +2,7 @@ from typing import Any, List, Dict, Optional
 from typing_extensions import Annotated
 from datetime import datetime
 import os
+import shutil
 from langchain.agents import create_agent
 from langchain.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -10,10 +11,26 @@ from langchain_core.tools.base import InjectedToolCallId
 from langchain_core.messages import ToolMessage
 from langgraph.graph import MessagesState
 from langgraph.types import Command
+from langgraph.prebuilt import create_react_agent
 
 from src.rag.retrieval.index import retrieve_context
 from src.rag.retrieval.utils import prepare_prompt_and_invoke_llm
 from src.services.llm import openAI
+from src.services.awsS3 import s3_client
+from src.services.supabase import supabase
+from src.config.index import appConfig
+
+import boto3
+from pathlib import Path
+
+# MCP relevant
+# from langchain_mcp_adapters.client import MultiServerMCPClient
+from mcp import ClientSession
+from mcp.client.stdio import stdio_client, StdioServerParameters
+from langchain_mcp_adapters.tools import load_mcp_tools 
+
+LOCAL_CACHE_DIR = Path("/tmp/agent_tabular_cache")
+LOCAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # =============================================================================
 # STATE DEFINITION
@@ -104,6 +121,10 @@ def get_supervisor_system_prompt(chat_history: Optional[List[Dict[str, str]]] = 
     - Searches the internet for current information
     - Use for current events, general knowledge, external information
     - ONLY use this tool if asked by the user or mentioned in the question
+
+    3. **Tabular Data Analysis Agent** (tabular_data_analysis):
+    - Connects directly to spreadsheet data, CSV configurations, and SQL databases (.csv, .sqlite).
+    - Use this whenever the user asks for exact math, computing averages, generating graphical charts, filtering database rows, analyzing metrics within tables or general data information.
 
     ### Core Responsibilities
 
@@ -340,6 +361,161 @@ Never fabricate information - only use what's found in search results."""
     
     return agent
 
+    
+# =============================================================================
+# Tabular MCP tool
+# =============================================================================
+
+def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o"):
+    """
+    Spawns a decoupled MCP client connection on-demand to execute tasks against a standalone tabular data analysis service.
+    """
+
+    @tool
+    async def tabular_data_analysis(
+        query: str,
+        # model: str,
+        tool_call_id: Annotated[str, InjectedToolCallId]
+    ) -> Command:
+        """
+        Analyze structured, tabular data files (like CSVs or SQLite databases) inside the project.
+        Use this tool whenever the user asks for calculations, mathematical trends, row filtering, 
+        summaries, statistical analysis, or charts regarding structured data files.
+        
+        Args:
+            query: The specific question or analysis instruction for the datasets.
+            tool_call_id: Injected tool call ID for message tracking.
+        """
+        try:
+            db_result = (
+                supabase.table("project_documents")
+                .select("id, filename, s3_key")
+                .eq("project_id", project_id)
+                .execute()
+            )
+            if not db_result.data:
+                return Command(update={"messages": [ToolMessage("No relevant documents found in this project.")]})
+            
+            tabular_files = [f for f in db_result.data if f["filename"].lower().endswith((".csv", ".sqlite", ".db"))]
+            if not tabular_files:
+                return Command(update={"messages": ToolMessage("No relevant tabular files found in this project.")})
+            
+            # Stage targets files locally
+            available_files_context = []
+            for file_info in tabular_files:
+                s3_key = file_info["s3_key"]
+                filename = file_info["filename"]
+                local_file_path = LOCAL_CACHE_DIR/f"{project_id}_{filename}"
+
+                if not local_file_path.exists():
+                    s3_client.download_file(
+                        Bucket = appConfig["s3_bucket_name"],
+                        Key = s3_key,
+                        Filename = str(local_file_path)
+                    )
+                available_files_context.append(
+                    f"Dataset Name: {filename} available at path: {str(local_file_path)}"
+                )
+            
+            # 1. Configure the parameters for your local stdio server
+            server_params = StdioServerParameters(
+                command="uv",
+                args=[
+                    "--directory", "/Users/amruthakaruturi/gitrepos/Full-Stack-RAG-project/mcps/tabular_mcp",
+                    "run", "server.py"
+                ]
+            )
+            # DEBUG LOGS
+            print("=" * 80)
+            print("Starting MCP server...")
+            print("PWD:", os.getcwd())
+            print("UV PATH:", shutil.which("uv"))
+            print(
+                "MCP DIR EXISTS:",
+                os.path.exists(
+                    "/Users/amruthakaruturi/gitrepos/Full-Stack-RAG-project/mcps/tabular_mcp"
+                )
+            )
+            print("SERVER PARAMS:", server_params)
+            print("=" * 80)
+
+            # 2. Use the standard stdio_client context manager
+            async with stdio_client(server_params) as (read_stream, write_stream):
+                async with ClientSession(read_stream, write_stream) as session:
+                    
+                    # Initialize the MCP connection handshake
+                    await session.initialize()
+                    print("1. MCP initialized")
+                    # 3. Retrieve the raw tools declared by your FastMCP server
+                    # list_tools_result = await session.list_tools()
+                    # mcp_tools = list_tools_result.tools
+                    mcp_tools = await load_mcp_tools(session)
+                    print("2. list_tools completed")
+                    print("3. tools:", [t.name for t in mcp_tools])
+                    # Build contextual system prompt injecting the cached scratch disk string configurations
+                    system_instruction = (
+                        "You are an isolated computational analyst worker. You have access to raw data tools. "
+                        "The target project environment files have been synchronized for your execution path:\n"
+                        + "\n".join(available_files_context) + "\n\n"
+                        "Pass these exact string file paths into your data tools to analyze rows and solve the query."
+                    )
+                    print("TOOLS COUNT:", len(mcp_tools))
+                    try:
+                        print("Creating agent...")
+
+                        tabular_agent = create_agent(
+                            model=model,
+                            tools=mcp_tools,
+                            system_prompt=system_instruction,
+                            state_schema=CustomAgentState
+                        )
+
+                        print("Agent created successfully")
+
+                    except Exception as e:
+                        import traceback
+
+                        print("CREATE_AGENT FAILED")
+                        print("TYPE:", type(e))
+                        print("ERROR:", repr(e))
+                        traceback.print_exc()
+
+                        raise
+                    print("4. agent created")
+
+                    agent_result = await tabular_agent.ainvoke({
+                        "messages": [{"role": "user", "content": query}]
+                    })
+                    print("5. invoke completed")
+
+                    final_response = agent_result["messages"][-1]
+                    content = final_response.content if hasattr(final_response, 'content') else str(final_response)
+                    citations = agent_result.get("citations", [])
+                    
+                    return Command(update={
+                        "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)], 
+                        "citations": citations
+                    })
+        except ExceptionGroup as eg:
+            # Python 3.11+ syntax to catch a TaskGroup failure
+            # Extract the actual errors that happened inside the group
+            error_messages = []
+            for exc in eg.exceptions:
+                error_messages.append(f"[{type(exc).__name__}]: {str(exc)}")
+            
+            combined_error = " | ".join(error_messages)
+            return Command(update={"messages": [ToolMessage(f"MCP TaskGroup Error: {combined_error}", tool_call_id=tool_call_id)]})
+
+        except Exception as e:
+            # Fallback for standard top-level exceptions or older Python versions
+            if "TaskGroup" in str(e) and hasattr(e, "__exceptions__"):
+                # Some backports of ExceptionGroup store sub-exceptions here
+                error_messages = [f"[{type(err).__name__}]: {str(err)}" for err in e.__exceptions__]
+                return Command(update={"messages": [ToolMessage(f"MCP TaskGroup Error: {' | '.join(error_messages)}", tool_call_id=tool_call_id)]})
+                
+            return Command(update={"messages": [ToolMessage(f"MCP Client Tool Execution Error: {str(e)}", tool_call_id=tool_call_id)]})
+        
+    return tabular_data_analysis
 
 def create_supervisor_tools(project_id: str, model: str = "gpt-4o"):
     """
@@ -361,6 +537,8 @@ def create_supervisor_tools(project_id: str, model: str = "gpt-4o"):
     # Create the specialized agents
     rag_agent = create_rag_agent(project_id, model)
     web_agent = create_web_search_agent(model)
+
+    tabular_tool = create_tabular_analysis_tool(project_id, model)
     
     @tool
     def rag_search(
@@ -430,8 +608,9 @@ def create_supervisor_tools(project_id: str, model: str = "gpt-4o"):
         if hasattr(final_message, 'content'):
             return final_message.content
         return str(final_message)
-    
-    return [rag_search, search_web]
+
+
+    return [rag_search, search_web, tabular_tool]
 
 
 

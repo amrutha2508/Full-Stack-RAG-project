@@ -259,6 +259,12 @@ export function KnowledgeBaseSidebar({
         [".pptx"],
       "text/plain": [".txt"],
       "text/markdown": [".md"],
+
+      "text/csv": [".csv"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+      "application/vnd.ms-excel": [".xls"],
+      "application/x-sqlite3": [".sqlite", ".db"],
+      "application/vnd.sqlite3": [".sqlite3"],
     },
     maxSize: 50 * 1024 * 1024,
   });
