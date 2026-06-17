@@ -1,4 +1,4 @@
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, Union
 from typing_extensions import Annotated
 from datetime import datetime
 import os
@@ -23,14 +23,179 @@ from src.config.index import appConfig
 import boto3
 from pathlib import Path
 
-# MCP relevant
+
+# =============================================================================
+# MCP RELATED CODE
+# =============================================================================
+
 # from langchain_mcp_adapters.client import MultiServerMCPClient
 from mcp import ClientSession
 from mcp.client.stdio import stdio_client, StdioServerParameters
 from langchain_mcp_adapters.tools import load_mcp_tools 
+import asyncio
+
 
 LOCAL_CACHE_DIR = Path("/tmp/agent_tabular_cache")
 LOCAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+from pydantic import BaseModel, Field
+import json
+import asyncio
+
+from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional, Literal
+
+
+# class FrontendTable(BaseModel):
+#     type: Literal["table"] = "table"
+#     title: str
+#     columns: List[str] = Field(default_factory=list)
+#     rows: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+# class FrontendImage(BaseModel):
+#     type: Literal["image"] = "image"
+#     title: str
+#     format: str = "png"
+#     encoding: Literal["base64"] = "base64"
+#     data: str
+
+
+# class FrontendMarkdown(BaseModel):
+#     type: Literal["markdown"] = "markdown"
+#     content: str
+
+
+# FrontendBlock = Union[
+#     FrontendMarkdown,
+#     FrontendTable,
+#     FrontendImage
+# ]
+
+# class FrontendResponse(BaseModel):
+#     answer: str
+#     blocks: List[Dict[FrontendBlock]] = Field(default_factory=list)
+#     citations: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+
+class TableBlock(BaseModel):
+    title: str
+    columns: List[str] = Field(default_factory=list)
+    rows: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ChartBlock(BaseModel):
+    title: str
+    chart_type: str
+    image_base64: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+
+
+class TabularAnalysisResult(BaseModel):
+    summary: str
+    tables: List[TableBlock] = Field(default_factory=list)
+    charts: List[ChartBlock] = Field(default_factory=list)
+    insights: List[str] = Field(default_factory=list)
+    raw_tool_outputs: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class TabularMCPManager:
+
+    def __init__(self):
+        self.session = None
+        self.tools = None
+        self.agent = None
+        self._lock = asyncio.Lock()
+
+    async def initialize(self, model="gpt-4o"):
+
+        async with self._lock:
+
+            if self.agent:
+                return
+
+            server_params = StdioServerParameters(
+                command="uv",
+                args=[
+                    "--directory",
+                    "/Users/amruthakaruturi/gitrepos/Full-Stack-RAG-project/mcps/tabular_mcp",
+                    "run",
+                    "server.py"
+                ]
+            )
+
+            self._stdio_ctx = stdio_client(server_params)
+
+            self.read_stream, self.write_stream = (
+                await self._stdio_ctx.__aenter__()
+            )
+
+            self._session_ctx = ClientSession(
+                self.read_stream,
+                self.write_stream
+            )
+
+            self.session = await self._session_ctx.__aenter__()
+
+            await self.session.initialize()
+
+            self.tools = await load_mcp_tools(self.session)
+            TABULAR_SYSTEM_PROMPT = """
+            You are a tabular data analysis specialist.
+
+            You have access to MCP tools for:
+            - describing datasets
+            - querying SQLite databases
+            - filtering rows
+            - grouping and aggregating
+            - creating pivot tables
+            - computing correlations
+            - detecting anomalies
+            - generating charts
+            - analyzing time series
+            - producing data quality reports
+            - generating auto insights
+
+            Rules:
+            1. Always use tools for actual calculations.
+            2. Never invent numbers, rows, column names, or chart data.
+            3. First inspect the dataset with describe_dataset or list_tables unless the required schema is already clear.
+            4. Use the exact file paths provided in the user request.
+            5. When the user asks for a chart, call generate_chart.
+            6. When the user asks for grouped metrics, use group_aggregate or create_pivot_table.
+            7. When the user asks about SQLite data, use list_tables first, then query_sqlite.
+            8. Keep the final answer concise because the outer tool will separately extract tables, charts, and insights from tool outputs.
+            """
+
+            self.agent = create_agent(
+                model=model,
+                tools=self.tools,
+                system_prompt=TABULAR_SYSTEM_PROMPT,
+                state_schema=CustomAgentState
+            )
+
+            print("MCP initialized")
+        
+    async def shutdown(self):
+
+        if self._session_ctx:
+            await self._session_ctx.__aexit__(
+                None, None, None
+            )
+
+        if self._stdio_ctx:
+            await self._stdio_ctx.__aexit__(
+                None, None, None
+            )
+
+        self.session = None
+        self.agent = None
+        self.tools = None
+
+        print("MCP shutdown complete")
+
+tabular_mcp = TabularMCPManager()
 
 # =============================================================================
 # STATE DEFINITION
@@ -48,6 +213,8 @@ class CustomAgentState(MessagesState):
         citations: List of citation dictionaries that accumulate across tool calls
     """
     citations: Annotated[List[Dict[str, Any]], lambda x, y: x + y] = []
+    analysis_result: Optional[Dict[str, Any]] = None
+    frontend_response: Optional[Dict[str, Any]] = None
 
 # =============================================================================
 # PROMPTS
@@ -107,55 +274,144 @@ def get_supervisor_system_prompt(chat_history: Optional[List[Dict[str, str]]] = 
     """
     current_date = datetime.now().strftime("%B %d, %Y")
     
-    base_prompt = f"""You are an intelligent supervisor assistant that coordinates between two specialized agents:
+    base_prompt = f"""You are an intelligent supervisor assistant that coordinates between specialized tools and returns frontend-renderable structured responses.
 
     **Current Date: {current_date}**
 
     ### Available Agents
 
-    1. **Project Documents Agent** (rag_search):
-    - Searches internal project documents using RAG
-    - Use for project-specific queries, internal documentation, uploaded files
+    1. **Project Documents Agent** (`rag_search`)
+    - Searches internal project documents using RAG.
+    - Use for project-specific queries, internal documentation, uploaded files, and content from project documents.
+    - This tool may return text, citations, tables, or extracted document context.
 
-    2. **Web Search Agent** (search_web):
-    - Searches the internet for current information
-    - Use for current events, general knowledge, external information
-    - ONLY use this tool if asked by the user or mentioned in the question
+    2. **Web Search Agent** (`search_web`)
+    - Searches the internet for current information.
+    - Use for current events, general knowledge, external information, or anything requiring up-to-date public data.
+    - ONLY use this tool if asked by the user or if the question explicitly requires external/current information.
 
-    3. **Tabular Data Analysis Agent** (tabular_data_analysis):
-    - Connects directly to spreadsheet data, CSV configurations, and SQL databases (.csv, .sqlite).
-    - Use this whenever the user asks for exact math, computing averages, generating graphical charts, filtering database rows, analyzing metrics within tables or general data information.
+    3. **Tabular Data Analysis Agent** (`tabular_data_analysis`)
+    - Connects directly to CSV files, SQLite databases, and tabular project data.
+    - Use this whenever the user asks for calculations, averages, counts, grouping, filtering, correlations, trends, charts, graphs, data quality, anomalies, pivot tables, or exact analysis over rows/columns.
+    - This tool returns structured JSON containing markdown, tables, images, insights, and citations.
 
     ### Core Responsibilities
 
-    - Analyze user queries and determine which agent(s) to use
-    - Route queries to the appropriate agent(s) — you MUST NOT answer substantive questions directly
-    - For complex queries, coordinate multiple agents in sequence
-    - Synthesize results from multiple agents into coherent answers
-    - Prioritize project documents for project-specific questions
-    - Use web search ONLY if asked by the user or mentioned in the question
-    - Use the chat history to understand the context and references in the current question
+    - Analyze the user's query and decide which tool(s) to call.
+    - Route substantive questions to the correct tool; do not answer factual/project/data questions directly.
+    - For complex queries, coordinate multiple tools in sequence.
+    - Synthesize tool results into one final structured response.
+    - Preserve structured blocks returned by tools, especially tables and base64 images.
+    - Use chat history to understand context and references in the current question.
 
     ### Query Routing Rules
 
-    **ALWAYS use tools for:**
-    - Any question requiring factual information
-    - Project-specific queries
-    - Technical questions
-    - Current events or news
-    - General knowledge questions
-    - Analysis or research requests
+    Use `tabular_data_analysis` as the FIRST choice when the user mentions:
+    - a `.csv`, `.sqlite`, `.db`, spreadsheet, table, dataframe, dataset, rows, columns, schema, sample rows, or data file
+    - dataset description, dataset overview, column description, data preview, missing values, statistics, shape, or data quality
+    - exact math over tabular data
+    - counts, averages, sums, min/max, statistics
+    - row filtering, sorting, grouping, aggregation, pivot tables
+    - charts, graphs, visualizations
+    - trends, correlations, anomalies, or time-series analysis
 
-    **Direct response permitted ONLY for:**
-    - Simple greetings (hi, hello, how are you)
-    - Acknowledgments (thanks, ok, got it)
-    - Basic clarification requests about your capabilities
-    - Farewell messages (goodbye, bye)
+    Important:
+    - If the user names a file ending in `.csv`, `.sqlite`, `.db`, or `.xlsx`, you MUST call `tabular_data_analysis`, not `rag_search`.
+    - If the user asks to describe a dataset, inspect a dataset, preview a dataset, list columns, show sample rows, or explain tabular data, you MUST call `tabular_data_analysis`.
+    - Do NOT use `rag_search` for CSV/database analysis unless the user is asking about documentation describing that dataset.
 
-    **ALWAYS use the RAG tool for the questions**
-    **Return as much information that is given from the RAG tool as possible to the user**
 
-    For all other queries, you MUST route to the appropriate agent(s) and synthesize their responses. Your role is coordination and synthesis, not direct knowledge provision.
+    Use `rag_search` when the user asks for:
+    - Information from uploaded/project documents
+    - Internal project-specific knowledge
+    - Document summaries, explanations, or citations
+
+    Use `search_web` when the user asks for:
+    - Current events
+    - Public/external information
+    - Recent or live information
+    - Internet search explicitly
+
+    ### Direct Response Rules
+
+    Direct response is permitted ONLY for:
+    - Simple greetings
+    - Acknowledgments
+    - Basic clarification about your capabilities
+    - Farewell messages
+
+    For all other queries, you MUST use one or more tools.
+
+    ### Tool Fallback Policy
+
+    You may call more than one tool when needed.
+
+    If `rag_search` returns no relevant context, no chunks, no citations, or says it could not find information, you must reconsider the query and call another appropriate tool before answering.
+
+    Fallback rules:
+    - If the query mentions `.csv`, `.sqlite`, `.db`, `.xlsx`, dataset, rows, columns, schema, sample rows, statistics, chart, or data analysis, then after an empty or insufficient `rag_search` result, call `tabular_data_analysis`.
+    - If the query asks for current or external public information and `rag_search` is insufficient, call `search_web`.
+    - Do not give a final answer after an empty tool result if another tool could answer the query.
+    - Only return a final response after either:
+    1. one tool gives enough information, or
+    2. all relevant tools have been tried and are insufficient.
+
+    ### Required Final Output Format
+
+    You MUST return ONLY valid JSON.
+
+    Do not wrap the JSON in markdown fences.
+    Do not include commentary outside the JSON.
+
+    The final response must match this structure:
+
+    {{
+    "answer": "A short natural language answer for the user.",
+    "blocks": [
+        {{
+        "type": "markdown",
+        "content": "Markdown text to render in the frontend."
+        }},
+        {{
+        "type": "table",
+        "title": "Table title",
+        "columns": ["column_1", "column_2"],
+        "rows": [
+            {{
+            "column_1": "value",
+            "column_2": "value"
+            }}
+        ]
+        }},
+        {{
+        "type": "image",
+        "title": "Chart or image title",
+        "format": "png",
+        "encoding": "base64",
+        "data": "base64_encoded_image_string"
+        }}
+    ],
+    "citations": []
+    }}
+
+    ### Structured Output Rules
+
+    - Always include `answer`, `blocks`, and `citations`.
+    - `answer` should be concise.
+    - `blocks` should contain renderable frontend sections.
+    - Use `markdown` blocks for normal explanation text.
+    - Use `table` blocks for tabular data.
+    - Use `image` blocks for base64 charts or images.
+    - If a tool returns JSON with `blocks`, preserve those blocks exactly unless you need to combine duplicate markdown.
+    - Never convert tables into markdown if a table block is available.
+    - Never remove or summarize away base64 image data.
+    - Never invent table rows, columns, image data, or citations.
+    - If no tables or images are returned, use only markdown blocks.
+    - If the tool result cannot answer the query, return a markdown block explaining what is missing.
+
+    ### Important
+
+    Your final answer must be frontend-ready JSON, not a normal chat response.
     """
 
     if chat_history:
@@ -365,6 +621,164 @@ Never fabricate information - only use what's found in search results."""
 # =============================================================================
 # Tabular MCP tool
 # =============================================================================
+def extract_tabular_result(agent_result: Dict[str, Any]) -> Dict[str, Any]:
+    tables = []
+    charts = []
+    insights = []
+    raw_tool_outputs = []
+
+    for msg in agent_result.get("messages", []):
+        if msg.__class__.__name__ != "ToolMessage":
+            continue
+
+        content = getattr(msg, "content", None)
+
+        if isinstance(content, str):
+            try:
+                parsed = json.loads(content)
+            except Exception:
+                continue
+        elif isinstance(content, dict):
+            parsed = content
+        else:
+            continue
+
+        raw_tool_outputs.append(parsed)
+
+        # query_sqlite output
+        if "rows" in parsed and "columns" in parsed:
+            tables.append({
+                "title": "SQL Query Result",
+                "columns": parsed.get("columns", []),
+                "rows": parsed.get("rows", []),
+            })
+
+        # filter_rows output
+        elif "rows" in parsed and "filter_applied" in parsed:
+            rows = parsed.get("rows", [])
+            tables.append({
+                "title": f"Filtered Rows: {parsed.get('filter_applied')}",
+                "columns": list(rows[0].keys()) if rows else [],
+                "rows": rows,
+            })
+
+        # group_aggregate output
+        elif "result" in parsed and "group_by" in parsed:
+            rows = parsed.get("result", [])
+            tables.append({
+                "title": "Grouped Aggregation Result",
+                "columns": list(rows[0].keys()) if rows else [],
+                "rows": rows,
+            })
+
+        # pivot table output
+        elif "pivot_table" in parsed:
+            rows = parsed.get("pivot_table", [])
+            tables.append({
+                "title": "Pivot Table",
+                "columns": list(rows[0].keys()) if rows else [],
+                "rows": rows,
+            })
+
+        # describe_dataset output
+        elif "sample" in parsed and "columns" in parsed:
+            sample = parsed.get("sample", [])
+            tables.append({
+                "title": "Dataset Sample",
+                "columns": list(sample[0].keys()) if sample else list(parsed.get("columns", {}).keys()),
+                "rows": sample,
+            })
+
+            insights.append(
+                f"Dataset has {parsed.get('shape', {}).get('rows')} rows and "
+                f"{parsed.get('shape', {}).get('columns')} columns."
+            )
+
+        # generate_chart output
+        elif parsed.get("encoding") == "base64" and "image_data" in parsed:
+            charts.append({
+                "title": "Generated Chart",
+                "chart_type": parsed.get("chart_type", "chart"),
+                "image_base64": parsed.get("image_data"),
+                "data": None,
+            })
+
+        # auto_insights output
+        elif "insights" in parsed:
+            for item in parsed.get("insights", []):
+                if isinstance(item, dict):
+                    insights.append(item.get("insight", str(item)))
+                else:
+                    insights.append(str(item))
+
+        # correlation output
+        elif "top_correlations" in parsed:
+            rows = parsed.get("top_correlations", [])
+            tables.append({
+                "title": "Top Correlations",
+                "columns": list(rows[0].keys()) if rows else [],
+                "rows": rows,
+            })
+
+        # data_quality_report output
+        elif "overall_quality" in parsed:
+            oq = parsed["overall_quality"]
+            insights.append(
+                f"Data quality score is {oq.get('score')} ({oq.get('grade')}): "
+                f"{oq.get('recommendation')}"
+            )
+
+    final_message = agent_result["messages"][-1]
+    summary = final_message.content if hasattr(final_message, "content") else str(final_message)
+
+    return TabularAnalysisResult(
+        summary=summary,
+        tables=tables,
+        charts=charts,
+        insights=insights,
+        raw_tool_outputs=raw_tool_outputs,
+    ).model_dump()
+
+def tabular_result_to_frontend_response(structured_result: Dict[str, Any]) -> Dict[str, Any]:
+    blocks = []
+
+    if structured_result.get("summary"):
+        blocks.append({
+            "type": "markdown",
+            "content": structured_result["summary"],
+        })
+
+    for table in structured_result.get("tables", []):
+        blocks.append({
+            "type": "table",
+            "title": table.get("title", "Table"),
+            "columns": table.get("columns", []),
+            "rows": table.get("rows", []),
+        })
+
+    for chart in structured_result.get("charts", []):
+        if chart.get("image_base64"):
+            blocks.append({
+                "type": "image",
+                "title": chart.get("title", "Chart"),
+                "format": "png",
+                "encoding": "base64",
+                "data": chart["image_base64"],
+            })
+
+    if structured_result.get("insights"):
+        blocks.append({
+            "type": "markdown",
+            "content": "\n".join(
+                f"- {insight}" for insight in structured_result["insights"]
+            ),
+        })
+
+    return {
+        "answer": structured_result.get("summary", ""),
+        "blocks": blocks,
+        "citations": [],
+    }
 
 def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o"):
     """
@@ -374,146 +788,197 @@ def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o"):
     @tool
     async def tabular_data_analysis(
         query: str,
-        # model: str,
         tool_call_id: Annotated[str, InjectedToolCallId]
     ) -> Command:
         """
-        Analyze structured, tabular data files (like CSVs or SQLite databases) inside the project.
-        Use this tool whenever the user asks for calculations, mathematical trends, row filtering, 
-        summaries, statistical analysis, or charts regarding structured data files.
+        Analyze structured tabular data files such as CSV, SQLite, DB, and spreadsheet-like datasets.
+
+        Use this tool whenever the user asks about:
+        - a file ending in .csv, .sqlite, or .db
+        - dataset description or overview
+        - columns, schema, dtypes, shape, sample rows
+        - missing values, data quality, statistics
+        - calculations, averages, counts, sums
+        - filtering, grouping, pivot tables
+        - charts, graphs, visualizations
+        - correlations, anomalies, trends, time series
+
+        This tool should be preferred over RAG when the user mentions a dataset or tabular file.
+
         
         Args:
             query: The specific question or analysis instruction for the datasets.
             tool_call_id: Injected tool call ID for message tracking.
         """
-        try:
-            db_result = (
-                supabase.table("project_documents")
-                .select("id, filename, s3_key")
-                .eq("project_id", project_id)
-                .execute()
-            )
-            if not db_result.data:
-                return Command(update={"messages": [ToolMessage("No relevant documents found in this project.")]})
-            
-            tabular_files = [f for f in db_result.data if f["filename"].lower().endswith((".csv", ".sqlite", ".db"))]
-            if not tabular_files:
-                return Command(update={"messages": ToolMessage("No relevant tabular files found in this project.")})
-            
-            # Stage targets files locally
-            available_files_context = []
-            for file_info in tabular_files:
-                s3_key = file_info["s3_key"]
-                filename = file_info["filename"]
-                local_file_path = LOCAL_CACHE_DIR/f"{project_id}_{filename}"
 
-                if not local_file_path.exists():
-                    s3_client.download_file(
-                        Bucket = appConfig["s3_bucket_name"],
-                        Key = s3_key,
-                        Filename = str(local_file_path)
-                    )
-                available_files_context.append(
-                    f"Dataset Name: {filename} available at path: {str(local_file_path)}"
+        db_result = (
+            supabase.table("project_documents")
+            .select("id, filename, s3_key")
+            .eq("project_id", project_id)
+            .execute()
+        )
+        if not db_result.data:
+            return Command(update={"messages": [ToolMessage("No relevant documents found in this project.")]})
+        
+        tabular_files = [f for f in db_result.data if f["filename"].lower().endswith((".csv", ".sqlite", ".db"))]
+        if not tabular_files:
+            return Command(update={"messages": ToolMessage("No relevant tabular files found in this project.")})
+        
+        # Stage targets files locally
+        available_files_context = []
+        for file_info in tabular_files:
+            s3_key = file_info["s3_key"]
+            filename = file_info["filename"]
+            local_file_path = LOCAL_CACHE_DIR/f"{project_id}_{filename}"
+
+            if not local_file_path.exists():
+                s3_client.download_file(
+                    Bucket = appConfig["s3_bucket_name"],
+                    Key = s3_key,
+                    Filename = str(local_file_path)
                 )
-            
-            # 1. Configure the parameters for your local stdio server
-            server_params = StdioServerParameters(
-                command="uv",
-                args=[
-                    "--directory", "/Users/amruthakaruturi/gitrepos/Full-Stack-RAG-project/mcps/tabular_mcp",
-                    "run", "server.py"
-                ]
+            available_files_context.append(
+                f"Dataset Name: {filename} available at path: {str(local_file_path)}"
             )
-            # DEBUG LOGS
-            print("=" * 80)
-            print("Starting MCP server...")
-            print("PWD:", os.getcwd())
-            print("UV PATH:", shutil.which("uv"))
-            print(
-                "MCP DIR EXISTS:",
-                os.path.exists(
-                    "/Users/amruthakaruturi/gitrepos/Full-Stack-RAG-project/mcps/tabular_mcp"
+        await tabular_mcp.initialize(model=model)
+        dataset_context = (
+            "Available datasets:\n\n"
+            + "\n".join(available_files_context)
+        )
+
+        agent_result = await asyncio.wait_for(
+            tabular_mcp.agent.ainvoke(
+                {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": f"""
+            {dataset_context}
+
+            User Request:
+            {query}
+
+            Use the provided dataset paths when calling tools.
+            """
+                        }
+                    ]
+                }
+            ),
+            timeout=120
+        )
+        structured_result = extract_tabular_result(agent_result)
+        
+        citations = agent_result.get("citations", [])
+        frontend_response = tabular_result_to_frontend_response(structured_result)
+
+        return Command(update={
+            "messages": [
+                ToolMessage(
+                    content=json.dumps(frontend_response),
+                    tool_call_id=tool_call_id,
                 )
-            )
-            print("SERVER PARAMS:", server_params)
-            print("=" * 80)
+            ],
+            "analysis_result": frontend_response,
+            "citations": citations,
+        })
 
-            # 2. Use the standard stdio_client context manager
-            async with stdio_client(server_params) as (read_stream, write_stream):
-                async with ClientSession(read_stream, write_stream) as session:
+        #     # 1. Configure the parameters for your local stdio server
+        #     server_params = StdioServerParameters(
+        #         command="uv",
+        #         args=[
+        #             "--directory", "/Users/amruthakaruturi/gitrepos/Full-Stack-RAG-project/mcps/tabular_mcp",
+        #             "run", "server.py"
+        #         ]
+        #     )
+        #     # DEBUG LOGS
+        #     print("=" * 80)
+        #     print("Starting MCP server...")
+        #     print("PWD:", os.getcwd())
+        #     print("UV PATH:", shutil.which("uv"))
+        #     print(
+        #         "MCP DIR EXISTS:",
+        #         os.path.exists(
+        #             "/Users/amruthakaruturi/gitrepos/Full-Stack-RAG-project/mcps/tabular_mcp"
+        #         )
+        #     )
+        #     print("SERVER PARAMS:", server_params)
+        #     print("=" * 80)
+
+        #     # 2. Use the standard stdio_client context manager
+        #     async with stdio_client(server_params) as (read_stream, write_stream):
+        #         async with ClientSession(read_stream, write_stream) as session:
                     
-                    # Initialize the MCP connection handshake
-                    await session.initialize()
-                    print("1. MCP initialized")
-                    # 3. Retrieve the raw tools declared by your FastMCP server
-                    # list_tools_result = await session.list_tools()
-                    # mcp_tools = list_tools_result.tools
-                    mcp_tools = await load_mcp_tools(session)
-                    print("2. list_tools completed")
-                    print("3. tools:", [t.name for t in mcp_tools])
-                    # Build contextual system prompt injecting the cached scratch disk string configurations
-                    system_instruction = (
-                        "You are an isolated computational analyst worker. You have access to raw data tools. "
-                        "The target project environment files have been synchronized for your execution path:\n"
-                        + "\n".join(available_files_context) + "\n\n"
-                        "Pass these exact string file paths into your data tools to analyze rows and solve the query."
-                    )
-                    print("TOOLS COUNT:", len(mcp_tools))
-                    try:
-                        print("Creating agent...")
+        #             # Initialize the MCP connection handshake
+        #             await session.initialize()
+        #             print("1. MCP initialized")
+        #             # 3. Retrieve the raw tools declared by your FastMCP server
+        #             # list_tools_result = await session.list_tools()
+        #             # mcp_tools = list_tools_result.tools
+        #             mcp_tools = await load_mcp_tools(session)
+        #             print("2. list_tools completed")
+        #             print("3. tools:", [t.name for t in mcp_tools])
+        #             # Build contextual system prompt injecting the cached scratch disk string configurations
+        #             system_instruction = (
+        #                 "You are an isolated computational analyst worker. You have access to raw data tools. "
+        #                 "The target project environment files have been synchronized for your execution path:\n"
+        #                 + "\n".join(available_files_context) + "\n\n"
+        #                 "Pass these exact string file paths into your data tools to analyze rows and solve the query."
+        #             )
+        #             print("TOOLS COUNT:", len(mcp_tools))
+        #             try:
+        #                 print("Creating agent...")
 
-                        tabular_agent = create_agent(
-                            model=model,
-                            tools=mcp_tools,
-                            system_prompt=system_instruction,
-                            state_schema=CustomAgentState
-                        )
+        #                 tabular_agent = create_agent(
+        #                     model=model,
+        #                     tools=mcp_tools,
+        #                     system_prompt=system_instruction,
+        #                     state_schema=CustomAgentState
+        #                 )
 
-                        print("Agent created successfully")
+        #                 print("Agent created successfully")
 
-                    except Exception as e:
-                        import traceback
+        #             except Exception as e:
+        #                 import traceback
 
-                        print("CREATE_AGENT FAILED")
-                        print("TYPE:", type(e))
-                        print("ERROR:", repr(e))
-                        traceback.print_exc()
+        #                 print("CREATE_AGENT FAILED")
+        #                 print("TYPE:", type(e))
+        #                 print("ERROR:", repr(e))
+        #                 traceback.print_exc()
 
-                        raise
-                    print("4. agent created")
+        #                 raise
+        #             print("4. agent created")
 
-                    agent_result = await tabular_agent.ainvoke({
-                        "messages": [{"role": "user", "content": query}]
-                    })
-                    print("5. invoke completed")
+        #             agent_result = await tabular_agent.ainvoke({
+        #                 "messages": [{"role": "user", "content": query}]
+        #             })
+        #             print("5. invoke completed")
 
-                    final_response = agent_result["messages"][-1]
-                    content = final_response.content if hasattr(final_response, 'content') else str(final_response)
-                    citations = agent_result.get("citations", [])
+        #             final_response = agent_result["messages"][-1]
+        #             content = final_response.content if hasattr(final_response, 'content') else str(final_response)
+        #             citations = agent_result.get("citations", [])
                     
-                    return Command(update={
-                        "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)], 
-                        "citations": citations
-                    })
-        except ExceptionGroup as eg:
-            # Python 3.11+ syntax to catch a TaskGroup failure
-            # Extract the actual errors that happened inside the group
-            error_messages = []
-            for exc in eg.exceptions:
-                error_messages.append(f"[{type(exc).__name__}]: {str(exc)}")
+        #             return Command(update={
+        #                 "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)], 
+        #                 "citations": citations
+        #             })
+        # except ExceptionGroup as eg:
+        #     # Python 3.11+ syntax to catch a TaskGroup failure
+        #     # Extract the actual errors that happened inside the group
+        #     error_messages = []
+        #     for exc in eg.exceptions:
+        #         error_messages.append(f"[{type(exc).__name__}]: {str(exc)}")
             
-            combined_error = " | ".join(error_messages)
-            return Command(update={"messages": [ToolMessage(f"MCP TaskGroup Error: {combined_error}", tool_call_id=tool_call_id)]})
+        #     combined_error = " | ".join(error_messages)
+        #     return Command(update={"messages": [ToolMessage(f"MCP TaskGroup Error: {combined_error}", tool_call_id=tool_call_id)]})
 
-        except Exception as e:
-            # Fallback for standard top-level exceptions or older Python versions
-            if "TaskGroup" in str(e) and hasattr(e, "__exceptions__"):
-                # Some backports of ExceptionGroup store sub-exceptions here
-                error_messages = [f"[{type(err).__name__}]: {str(err)}" for err in e.__exceptions__]
-                return Command(update={"messages": [ToolMessage(f"MCP TaskGroup Error: {' | '.join(error_messages)}", tool_call_id=tool_call_id)]})
+        # except Exception as e:
+        #     # Fallback for standard top-level exceptions or older Python versions
+        #     if "TaskGroup" in str(e) and hasattr(e, "__exceptions__"):
+        #         # Some backports of ExceptionGroup store sub-exceptions here
+        #         error_messages = [f"[{type(err).__name__}]: {str(err)}" for err in e.__exceptions__]
+        #         return Command(update={"messages": [ToolMessage(f"MCP TaskGroup Error: {' | '.join(error_messages)}", tool_call_id=tool_call_id)]})
                 
-            return Command(update={"messages": [ToolMessage(f"MCP Client Tool Execution Error: {str(e)}", tool_call_id=tool_call_id)]})
+        #     return Command(update={"messages": [ToolMessage(f"MCP Client Tool Execution Error: {str(e)}", tool_call_id=tool_call_id)]})
         
     return tabular_data_analysis
 
@@ -680,7 +1145,8 @@ def create_supervisor_agent(
         model=llm,
         tools=tools,
         system_prompt=system_prompt,
-        state_schema=CustomAgentState
+        state_schema=CustomAgentState,
+        # response_format=FrontendResponse
     ).with_config({"recursion_limit": 10})
     
     return supervisor
