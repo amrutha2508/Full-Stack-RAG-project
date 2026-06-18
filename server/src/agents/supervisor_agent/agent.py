@@ -621,6 +621,27 @@ Never fabricate information - only use what's found in search results."""
 # =============================================================================
 # Tabular MCP tool
 # =============================================================================
+def parse_tool_content(content):
+    if isinstance(content, str):
+        return json.loads(content)
+
+    if isinstance(content, dict):
+        if content.get("type") == "text" and "text" in content:
+            return json.loads(content["text"])
+        return content
+
+    if isinstance(content, list):
+        if not content:
+            return None
+
+        first = content[0]
+
+        if isinstance(first, dict) and first.get("type") == "text" and "text" in first:
+            return json.loads(first["text"])
+
+        return first
+
+    return None
 def extract_tabular_result(agent_result: Dict[str, Any]) -> Dict[str, Any]:
     tables = []
     charts = []
@@ -628,21 +649,22 @@ def extract_tabular_result(agent_result: Dict[str, Any]) -> Dict[str, Any]:
     raw_tool_outputs = []
 
     for msg in agent_result.get("messages", []):
+        print("message type:", msg.__class__.__name__)
         if msg.__class__.__name__ != "ToolMessage":
             continue
-
+        print("*"*80)
+        print("recieved tool message:", msg.__class__.__name__)
         content = getattr(msg, "content", None)
-
-        if isinstance(content, str):
-            try:
-                parsed = json.loads(content)
-            except Exception:
-                continue
-        elif isinstance(content, dict):
-            parsed = content
-        else:
+        print("message content:", content)
+        try:
+            parsed = parse_tool_content(content)
+        except Exception as e:
+            print("Failed to parse tool content:", e)
             continue
-
+        if not isinstance(parsed, dict):
+            continue
+        print("="*80)
+        print("PARSED TOOL MESSAGE CONTENT:", parsed)
         raw_tool_outputs.append(parsed)
 
         # query_sqlite output
@@ -730,7 +752,11 @@ def extract_tabular_result(agent_result: Dict[str, Any]) -> Dict[str, Any]:
 
     final_message = agent_result["messages"][-1]
     summary = final_message.content if hasattr(final_message, "content") else str(final_message)
-
+    print("summary:", summary)
+    print("tables:", tables)
+    print("charts:", charts)
+    print("insights:", insights)
+    print("raw_tool_outputs:", raw_tool_outputs)
     return TabularAnalysisResult(
         summary=summary,
         tables=tables,
@@ -845,6 +871,7 @@ def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o"):
             "Available datasets:\n\n"
             + "\n".join(available_files_context)
         )
+        print("dataset_context:", dataset_context)
 
         agent_result = await asyncio.wait_for(
             tabular_mcp.agent.ainvoke(
