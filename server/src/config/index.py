@@ -51,4 +51,5 @@ appConfig = {
     "redis_url": os.getenv("REDIS_URL"),
     "openai_api_key": os.getenv("OPENAI_API_KEY"),
     "scrapingbee_api_key": os.getenv("SCRAPINGBEE_API_KEY"),
+    "SUPABASE_POSTGRES_CONNECTION_STRING": os.getenv("SUPABASE_POSTGRES_CONNECTION_STRING")
 }

@@ -10,6 +10,10 @@ Demo video - https://drive.google.com/file/d/1I2epQIv0Ncm1rgdlzmeTRbFZg_Yi-fLI/v
 4. client side:
     1. npm run dev
 
+**NOTE**: if redis gives port already in use error
+1. lsof -i tcp:6379
+2. kill -9 <pid>
+
 I will be building a Full stack RAG project where the users can upload pdfs, docx, ppts, txt, webscraping files and communicate with a RAG pipeline to get relevant answers.
 
 1. clerk : used as 3rd party authentication service.

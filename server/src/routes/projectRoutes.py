@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from src.services.supabase import supabase
 from src.services.clerkAuth import get_current_user_clerk_id
 from src.models.index import ProjectCreate, ProjectSettings
@@ -7,9 +7,18 @@ from src.rag.retrieval.index import retrieve_context
 from src.rag.retrieval.utils import prepare_prompt_and_invoke_llm
 from src.agents.simple_agent.agent import create_simple_custom_agent
 from src.agents.supervisor_agent.agent import create_supervisor_agent
-from typing import List, Dict
+from typing import List, Dict, Any
+import json
+import uuid
+from src.config.index import appConfig
+import asyncio
+import re
+from openai import RateLimitError
+from src.agents.supervisor_agent.agent import compact_tabular_ai_message, safe_parse_json
 
 router = APIRouter(tags=["projectRoutes"])
+
+
 """
 `/api/projects`
 
@@ -389,6 +398,32 @@ async def update_project_settings(
             detail=f"An internal server error occurred while updating project {project_id} settings: {str(e)}",
         )
 
+def format_structured_ai_content(msg: Dict[str, Any]) -> Dict[str, Any]:
+
+    parsed = safe_parse_json(msg.get("content", ""))
+
+    if not isinstance(parsed, dict):
+        return {"content": msg.get("content", "")}
+    print("parsed:", parsed)
+    parts = {}
+
+    answer = parsed.get("answer")
+    
+    if isinstance(answer, str) and answer.strip():
+        parts["answer"] = answer.strip()
+
+    tabular_message = compact_tabular_ai_message(msg)
+    print("tabular_message:", tabular_message)
+    compact_content = json.loads(tabular_message["content"])
+
+    parts["blocks"] = compact_content["blocks"]
+    print("parts:", parts)
+    return parts
+
+
+
+    
+    
 
 def get_chat_history(chat_id:str, exclude_message_id:str =None)-> List[Dict[str,str]]:
     """
@@ -425,9 +460,10 @@ def get_chat_history(chat_id:str, exclude_message_id:str =None)-> List[Dict[str,
         # Format messages for agent
         formatted_history = []
         for msg in recent_messages:
+            aimessage_content = format_structured_ai_content(msg)
             formatted_history.append({
                 "role": msg.get("role", "user"),
-                "content": msg.get("content", "")
+                "content": aimessage_content
             })
         
         return formatted_history
@@ -435,8 +471,29 @@ def get_chat_history(chat_id:str, exclude_message_id:str =None)-> List[Dict[str,
         # If history retrieval fails, return empty list
         return []
 
+def get_retry_after_seconds(error: Exception, default: float = 8.0) -> float:
+    match = re.search(r"Please try again in ([0-9.]+)s", str(error))
+    return float(match.group(1)) if match else default
+
+
+async def invoke_agent_with_retry(agent, payload, config, max_retries: int = 3):
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            return await agent.ainvoke(payload, config=config)
+
+        except RateLimitError as e:
+            last_error = e
+            wait = get_retry_after_seconds(e) + 1
+            print(f"Rate limit hit. Attempt {attempt + 1}/{max_retries}. Retrying in {wait:.2f}s...")
+            await asyncio.sleep(wait)
+
+    raise last_error
+
 @router.post("/{project_id}/chats/{chat_id}/messages")
 async def send_message(
+    request: Request,
     project_id: str,
     chat_id: str,
     message: MessageCreate,
@@ -484,10 +541,12 @@ async def send_message(
                 chat_history=chat_history
             )
         elif agent_type == "agentic":
+            checkpointer = request.app.state.checkpointer
             agent = create_supervisor_agent(
                 project_id=project_id,
                 # model="gpt-4o",
-                chat_history=chat_history
+                chat_history=chat_history,
+                checkpointer=checkpointer
             )
 
         print("agent_type: ", agent_type)
@@ -495,14 +554,58 @@ async def send_message(
         # result = await agent.ainvoke({
         #     "messages": [HumanMessage(content=message_content)]
         # })
-        try:
-            result = await agent.ainvoke({"messages": [{"role": "user", "content": message_content}]})
-        except Exception as e:
-            print(f"ALARM: Agent failed with error: {str(e)}")
-            import traceback
-            traceback.print_exc()
-        print("agent result: ", result)
-        
+        trace_id = str(uuid.uuid4())
+        if agent_type == "simple":
+            try:
+                config = {
+                    "configurable": {
+                        "thread_id": f"{chat_id}:{current_message_id}"
+                    },
+                    "run_id": trace_id
+                }
+                result = await agent.ainvoke({
+                    "messages": [
+                        {"role": "user", "content": message_content}
+                    ]
+                })
+            except Exception as e:
+                print(f"ALARM: Agent failed with error: {str(e)}")
+                import traceback
+                traceback.print_exc()
+
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Agent failed while generating response: {str(e)}"
+                )
+        elif agent_type == "agentic":
+            try:
+                config = {
+                    "configurable": {
+                        "thread_id": f"{chat_id}:{current_message_id}"
+                    },
+                    "run_id": trace_id
+                }
+
+                payload = {
+                    "messages": [
+                        {"role": "user", "content": message_content}
+                    ]
+                }
+
+                result = await invoke_agent_with_retry(
+                    agent=agent,
+                    payload=payload,
+                    config=config,
+                )
+            except Exception as e:
+                print(f"ALARM: Agent failed with error: {str(e)}")
+                import traceback
+                traceback.print_exc()
+
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Agent failed while generating response: {str(e)}"
+                )
         # # Step 3 : Retrieval
         # texts, images, tables, citations = retrieve_context(project_id, message)
 
@@ -510,8 +613,15 @@ async def send_message(
         # final_response = prepare_prompt_and_invoke_llm(
         #     user_query=message, texts=texts, images=images, tables=tables
         # )
-        final_response = result["messages"][-1].content
+        # final_response = result["messages"][-1].content
+        
+        analysis_result = result.get("analysis_result", {})
         citations = result.get("citations",[])
+
+        if analysis_result:
+            final_response = json.dumps(analysis_result)
+        else:
+            final_response = result["messages"][-1].content
     
 
         # Step 5: Insert the AI Response into the database.
@@ -521,6 +631,7 @@ async def send_message(
             "clerk_id": current_user_clerk_id,
             "role": MessageRole.ASSISTANT.value,
             "citations": citations,
+            "trace_id": trace_id,
         }
         ai_response_creation_result = (
             supabase.table("messages").insert(ai_response_insert_data).execute()

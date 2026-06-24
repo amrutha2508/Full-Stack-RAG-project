@@ -27,6 +27,7 @@ datasets = "^4.4.1"
 pytest = "^9.0.2"
 structlog = "^24.4.0"
 langsmith = "^0.8.12"
+langgraph-checkpoint-postgres = "^3.1.0"
 
 
 [build-system]

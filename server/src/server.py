@@ -4,13 +4,29 @@ from src.routes.userRoutes import router as userRoutes
 from src.routes.projectRoutes import router as projectRoutes
 from src.routes.projectFilesRoutes import router as projectFilesRoutes
 from src.routes.chatRoutes import router as chatRoutes
+from contextlib import asynccontextmanager
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from src.config.index import appConfig
 
+checkpointer = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global checkpointer
+    async with AsyncPostgresSaver.from_conn_string(
+        appConfig["SUPABASE_POSTGRES_CONNECTION_STRING"]
+    ) as saver:
+        await saver.setup()
+        checkpointer = saver
+        app.state.checkpointer = checkpointer
+        yield
 
 app = FastAPI(
     title = "RAG Application",
     description = "Backend API for RAG Application",
     version = "1.0.0",
     redirect_slashes=False,
+    lifespan=lifespan
 )
 
 # Configure CORS

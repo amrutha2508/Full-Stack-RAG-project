@@ -35,6 +35,7 @@ from langchain_mcp_adapters.tools import load_mcp_tools
 import asyncio
 
 
+
 LOCAL_CACHE_DIR = Path("/tmp/agent_tabular_cache")
 LOCAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -44,6 +45,7 @@ import asyncio
 
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional, Literal
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
 
 # class FrontendTable(BaseModel):
@@ -214,7 +216,7 @@ class CustomAgentState(MessagesState):
     """
     citations: Annotated[List[Dict[str, Any]], lambda x, y: x + y] = []
     analysis_result: Optional[Dict[str, Any]] = None
-    frontend_response: Optional[Dict[str, Any]] = None
+    # frontend_response: Optional[Dict[str, Any]] = None
 
 # =============================================================================
 # PROMPTS
@@ -366,7 +368,7 @@ def get_supervisor_system_prompt(chat_history: Optional[List[Dict[str, str]]] = 
     The final response must match this structure:
 
     {{
-    "answer": "A short natural language answer for the user.",
+    
     "blocks": [
         {{
         "type": "markdown",
@@ -621,6 +623,85 @@ Never fabricate information - only use what's found in search results."""
 # =============================================================================
 # Tabular MCP tool
 # =============================================================================
+
+import json
+from typing import List, Dict, Any
+
+
+def safe_parse_json(content: str):
+    try:
+        return json.loads(content)
+    except Exception:
+        return None
+
+def compact_tabular_ai_message(msg: Dict[str, Any]) -> Dict[str, Any]:
+    parsed = safe_parse_json(msg.get("content", ""))
+
+    if not isinstance(parsed, dict):
+        return msg
+
+    compact_blocks = []
+
+    for block in parsed.get("blocks", []):
+        if block.get("type") == "markdown":
+            compact_blocks.append(block)
+
+        elif block.get("type") == "table":
+            compact_blocks.append({
+                "type": "table",
+                "title": block.get("title"),
+                "columns": block.get("columns", []),
+                "row_count": len(block.get("rows", []))
+            })
+
+        elif block.get("type") == "image":
+            compact_blocks.append({
+                "type": "image",
+                "title": block.get("title"),
+            })
+
+    return {
+        "role": msg.get("role"),
+        "content": json.dumps({
+            # "answer": parsed.get("answer", ""),
+            "blocks": compact_blocks,
+            "citations": parsed.get("citations", []),
+        })
+    }
+
+def is_tabular_ai_message(msg: Dict[str, Any]) -> bool:
+    if msg.get("role") not in ("assistant", "ai"):
+        return False
+
+    parsed = safe_parse_json(msg.get("content", ""))
+
+    if not isinstance(parsed, dict):
+        return False
+
+    blocks = parsed.get("blocks", [])
+
+    if not isinstance(blocks, list):
+        return False
+
+    return any(
+        isinstance(block, dict)
+        and block.get("type") in ("table", "image")
+        for block in blocks
+    ) 
+
+def extract_tabular_history(chat_history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    tabular_history = []
+
+    for i, msg in enumerate(chat_history):
+        if is_tabular_ai_message(msg):
+            if i > 0 and chat_history[i - 1].get("role") == "user":
+                tabular_history.append(chat_history[i - 1])
+
+            tabular_history.append(compact_tabular_ai_message(msg))
+
+    return tabular_history
+
+
 def parse_tool_content(content):
     if isinstance(content, str):
         return json.loads(content)
@@ -801,12 +882,32 @@ def tabular_result_to_frontend_response(structured_result: Dict[str, Any]) -> Di
         })
 
     return {
-        "answer": structured_result.get("summary", ""),
+        # "answer": structured_result.get("summary", ""),
         "blocks": blocks,
         "citations": [],
     }
 
-def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o"):
+def strip_image_data_for_llm(frontend_response: Dict[str, Any]) -> Dict[str, Any]:
+    llm_response = {
+        "blocks": [],
+        "citations": frontend_response.get("citations", []),
+    }
+
+    for block in frontend_response.get("blocks", []):
+        if block.get("type") == "image":
+            llm_response["blocks"].append({
+                "type": "image",
+                "title": block.get("title", "Generated Chart"),
+                "format": block.get("format", "png"),
+                "encoding": block.get("encoding", "base64"),
+                "data": "[image data hidden from LLM]"
+            })
+        else:
+            llm_response["blocks"].append(block)
+
+    return llm_response
+
+def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o", tabular_history: List[Dict[str, Any]] = None):
     """
     Spawns a decoupled MCP client connection on-demand to execute tasks against a standalone tabular data analysis service.
     """
@@ -867,12 +968,13 @@ def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o"):
                 f"Dataset Name: {filename} available at path: {str(local_file_path)}"
             )
         await tabular_mcp.initialize(model=model)
+
         dataset_context = (
             "Available datasets:\n\n"
             + "\n".join(available_files_context)
         )
         print("dataset_context:", dataset_context)
-
+        tabular_history_text = format_chat_history(tabular_history or [])
         agent_result = await asyncio.wait_for(
             tabular_mcp.agent.ainvoke(
                 {
@@ -881,6 +983,9 @@ def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o"):
                             "role": "user",
                             "content": f"""
             {dataset_context}
+
+            Previous relevant tabular context:
+            {tabular_history_text}
 
             User Request:
             {query}
@@ -893,15 +998,20 @@ def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o"):
             ),
             timeout=120
         )
+        print("*"*20, "agent_result", "="*20)
+        print(agent_result)
         structured_result = extract_tabular_result(agent_result)
-        
+        print("*"*20, "structured_result", "="*20)
+        print( structured_result)
+        print("*"*20, "structured_result", "="*20)
         citations = agent_result.get("citations", [])
+        print("*"*20, "frontend_response", "="*20)
         frontend_response = tabular_result_to_frontend_response(structured_result)
-
+        llm_visible_response = strip_image_data_for_llm(frontend_response)
         return Command(update={
             "messages": [
                 ToolMessage(
-                    content=json.dumps(frontend_response),
+                    content=json.dumps(llm_visible_response),
                     tool_call_id=tool_call_id,
                 )
             ],
@@ -909,107 +1019,9 @@ def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o"):
             "citations": citations,
         })
 
-        #     # 1. Configure the parameters for your local stdio server
-        #     server_params = StdioServerParameters(
-        #         command="uv",
-        #         args=[
-        #             "--directory", "/Users/amruthakaruturi/gitrepos/Full-Stack-RAG-project/mcps/tabular_mcp",
-        #             "run", "server.py"
-        #         ]
-        #     )
-        #     # DEBUG LOGS
-        #     print("=" * 80)
-        #     print("Starting MCP server...")
-        #     print("PWD:", os.getcwd())
-        #     print("UV PATH:", shutil.which("uv"))
-        #     print(
-        #         "MCP DIR EXISTS:",
-        #         os.path.exists(
-        #             "/Users/amruthakaruturi/gitrepos/Full-Stack-RAG-project/mcps/tabular_mcp"
-        #         )
-        #     )
-        #     print("SERVER PARAMS:", server_params)
-        #     print("=" * 80)
-
-        #     # 2. Use the standard stdio_client context manager
-        #     async with stdio_client(server_params) as (read_stream, write_stream):
-        #         async with ClientSession(read_stream, write_stream) as session:
-                    
-        #             # Initialize the MCP connection handshake
-        #             await session.initialize()
-        #             print("1. MCP initialized")
-        #             # 3. Retrieve the raw tools declared by your FastMCP server
-        #             # list_tools_result = await session.list_tools()
-        #             # mcp_tools = list_tools_result.tools
-        #             mcp_tools = await load_mcp_tools(session)
-        #             print("2. list_tools completed")
-        #             print("3. tools:", [t.name for t in mcp_tools])
-        #             # Build contextual system prompt injecting the cached scratch disk string configurations
-        #             system_instruction = (
-        #                 "You are an isolated computational analyst worker. You have access to raw data tools. "
-        #                 "The target project environment files have been synchronized for your execution path:\n"
-        #                 + "\n".join(available_files_context) + "\n\n"
-        #                 "Pass these exact string file paths into your data tools to analyze rows and solve the query."
-        #             )
-        #             print("TOOLS COUNT:", len(mcp_tools))
-        #             try:
-        #                 print("Creating agent...")
-
-        #                 tabular_agent = create_agent(
-        #                     model=model,
-        #                     tools=mcp_tools,
-        #                     system_prompt=system_instruction,
-        #                     state_schema=CustomAgentState
-        #                 )
-
-        #                 print("Agent created successfully")
-
-        #             except Exception as e:
-        #                 import traceback
-
-        #                 print("CREATE_AGENT FAILED")
-        #                 print("TYPE:", type(e))
-        #                 print("ERROR:", repr(e))
-        #                 traceback.print_exc()
-
-        #                 raise
-        #             print("4. agent created")
-
-        #             agent_result = await tabular_agent.ainvoke({
-        #                 "messages": [{"role": "user", "content": query}]
-        #             })
-        #             print("5. invoke completed")
-
-        #             final_response = agent_result["messages"][-1]
-        #             content = final_response.content if hasattr(final_response, 'content') else str(final_response)
-        #             citations = agent_result.get("citations", [])
-                    
-        #             return Command(update={
-        #                 "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)], 
-        #                 "citations": citations
-        #             })
-        # except ExceptionGroup as eg:
-        #     # Python 3.11+ syntax to catch a TaskGroup failure
-        #     # Extract the actual errors that happened inside the group
-        #     error_messages = []
-        #     for exc in eg.exceptions:
-        #         error_messages.append(f"[{type(exc).__name__}]: {str(exc)}")
-            
-        #     combined_error = " | ".join(error_messages)
-        #     return Command(update={"messages": [ToolMessage(f"MCP TaskGroup Error: {combined_error}", tool_call_id=tool_call_id)]})
-
-        # except Exception as e:
-        #     # Fallback for standard top-level exceptions or older Python versions
-        #     if "TaskGroup" in str(e) and hasattr(e, "__exceptions__"):
-        #         # Some backports of ExceptionGroup store sub-exceptions here
-        #         error_messages = [f"[{type(err).__name__}]: {str(err)}" for err in e.__exceptions__]
-        #         return Command(update={"messages": [ToolMessage(f"MCP TaskGroup Error: {' | '.join(error_messages)}", tool_call_id=tool_call_id)]})
-                
-        #     return Command(update={"messages": [ToolMessage(f"MCP Client Tool Execution Error: {str(e)}", tool_call_id=tool_call_id)]})
-        
     return tabular_data_analysis
 
-def create_supervisor_tools(project_id: str, model: str = "gpt-4o"):
+def create_supervisor_tools(project_id: str, model: str = "gpt-4o", tabular_history: List[Dict[str, Any]] = None):
     """
     Create supervisor tools that wrap the specialized agents.
     
@@ -1030,7 +1042,7 @@ def create_supervisor_tools(project_id: str, model: str = "gpt-4o"):
     rag_agent = create_rag_agent(project_id, model)
     web_agent = create_web_search_agent(model)
 
-    tabular_tool = create_tabular_analysis_tool(project_id, model)
+    tabular_tool = create_tabular_analysis_tool(project_id, model, tabular_history)
     
     @tool
     def rag_search(
@@ -1113,7 +1125,8 @@ def create_supervisor_tools(project_id: str, model: str = "gpt-4o"):
 def create_supervisor_agent(
     project_id: str,
     # model: str = "gpt-4o",
-    chat_history: Optional[List[Dict[str, str]]] = None
+    chat_history: Optional[List[Dict[str, str]]] = None,
+    checkpointer: BaseCheckpointSaver | None = None
 ):
     """
     Create a supervisor agent that coordinates RAG and web search agents.
@@ -1161,9 +1174,11 @@ def create_supervisor_agent(
         >>> print(result["messages"][-1].content)
         >>> print(result.get("citations", []))
     """
+    tabular_history = extract_tabular_history(chat_history)
+
     llm = openAI["chat_llm"]
     # Get the supervisor tools (wrapped agents)
-    tools = create_supervisor_tools(project_id, model=llm)
+    tools = create_supervisor_tools(project_id, model=llm, tabular_history=tabular_history)
 
     # Get the system prompt with optional chat history
     system_prompt = get_supervisor_system_prompt(chat_history=chat_history)
@@ -1173,6 +1188,7 @@ def create_supervisor_agent(
         tools=tools,
         system_prompt=system_prompt,
         state_schema=CustomAgentState,
+        checkpointer=checkpointer,
         # response_format=FrontendResponse
     ).with_config({"recursion_limit": 10})
     
