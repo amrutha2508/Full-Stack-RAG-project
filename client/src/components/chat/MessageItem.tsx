@@ -46,13 +46,14 @@ type ImageBlock = {
 type ResponseBlock = MarkdownBlock | TableBlock | ImageBlock;
 
 interface ParsedLLMContent {
-  answer: string;
+  // answer: string;
   blocks: ResponseBlock[];
   citations?: Citation[];
 }
 
 export function MessageItem({ message, onFeedback }: MessageItemProps) {
   const isUser = message.role === "user";
+  // console.log("Message:", message);
 
   const time = new Date(message.created_at).toLocaleTimeString([], {
     hour: "2-digit",
@@ -74,7 +75,7 @@ export function MessageItem({ message, onFeedback }: MessageItemProps) {
 
       return {
         isStructured: true,
-        textContent: parsed.answer || "",
+        textContent: "",
         blocks: parsed.blocks || [],
         citations: [...(parsed.citations || []), ...(message.citations || [])],
       };

@@ -398,8 +398,7 @@ def get_supervisor_system_prompt(chat_history: Optional[List[Dict[str, str]]] = 
 
     ### Structured Output Rules
 
-    - Always include `answer`, `blocks`, and `citations`.
-    - `answer` should be concise.
+    - Always include `blocks`, and `citations`.
     - `blocks` should contain renderable frontend sections.
     - Use `markdown` blocks for normal explanation text.
     - Use `table` blocks for tabular data.
