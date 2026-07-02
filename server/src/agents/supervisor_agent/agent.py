@@ -299,7 +299,9 @@ def get_supervisor_system_prompt(chat_history: Optional[List[Dict[str, str]]] = 
 
     ### Core Responsibilities
 
+    - Do not assume any question is purely conceptual or general. 
     - Analyze the user's query and decide which tool(s) to call.
+    - Attempt to resolve the query using internal project data via rag_search before attempting any external web searches.
     - Route substantive questions to the correct tool; do not answer factual/project/data questions directly.
     - For complex queries, coordinate multiple tools in sequence.
     - Synthesize tool results into one final structured response.
@@ -307,6 +309,17 @@ def get_supervisor_system_prompt(chat_history: Optional[List[Dict[str, str]]] = 
     - Use chat history to understand context and references in the current question.
 
     ### Query Routing Rules
+
+    Use `rag_search` when the user asks for:
+    - Information from uploaded/project documents
+    - Internal project-specific knowledge
+    - Document summaries, explanations, or citations
+
+    Use `search_web` when the user asks for:
+    - Current events
+    - Public/external information
+    - Recent or live information
+    - Internet search explicitly
 
     Use `tabular_data_analysis` as the FIRST choice when the user mentions:
     - a `.csv`, `.sqlite`, `.db`, spreadsheet, table, dataframe, dataset, rows, columns, schema, sample rows, or data file
@@ -321,18 +334,6 @@ def get_supervisor_system_prompt(chat_history: Optional[List[Dict[str, str]]] = 
     - If the user names a file ending in `.csv`, `.sqlite`, `.db`, or `.xlsx`, you MUST call `tabular_data_analysis`, not `rag_search`.
     - If the user asks to describe a dataset, inspect a dataset, preview a dataset, list columns, show sample rows, or explain tabular data, you MUST call `tabular_data_analysis`.
     - Do NOT use `rag_search` for CSV/database analysis unless the user is asking about documentation describing that dataset.
-
-
-    Use `rag_search` when the user asks for:
-    - Information from uploaded/project documents
-    - Internal project-specific knowledge
-    - Document summaries, explanations, or citations
-
-    Use `search_web` when the user asks for:
-    - Current events
-    - Public/external information
-    - Recent or live information
-    - Internet search explicitly
 
     ### Direct Response Rules
 
@@ -697,7 +698,7 @@ def extract_tabular_history(chat_history: List[Dict[str, Any]]) -> List[Dict[str
                 tabular_history.append(chat_history[i - 1])
 
             tabular_history.append(compact_tabular_ai_message(msg))
-
+    print("tabular history extracted:", tabular_history)
     return tabular_history
 
 
@@ -906,6 +907,9 @@ def strip_image_data_for_llm(frontend_response: Dict[str, Any]) -> Dict[str, Any
 
     return llm_response
 
+
+
+
 def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o", tabular_history: List[Dict[str, Any]] = None):
     """
     Spawns a decoupled MCP client connection on-demand to execute tasks against a standalone tabular data analysis service.
@@ -972,8 +976,12 @@ def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o", tabular
             "Available datasets:\n\n"
             + "\n".join(available_files_context)
         )
+        print("-"*40)
         print("dataset_context:", dataset_context)
+        print("tabular_history:", tabular_history)
         tabular_history_text = format_chat_history(tabular_history or [])
+        print("tabular_history_text:", tabular_history_text)
+        print("-"*40)
         agent_result = await asyncio.wait_for(
             tabular_mcp.agent.ainvoke(
                 {
@@ -1173,6 +1181,8 @@ def create_supervisor_agent(
         >>> print(result["messages"][-1].content)
         >>> print(result.get("citations", []))
     """
+    print("inside create_supervisor_agent")
+    print("chat_history:", chat_history)
     tabular_history = extract_tabular_history(chat_history)
 
     llm = openAI["chat_llm"]

@@ -400,15 +400,15 @@ async def update_project_settings(
 
 def format_structured_ai_content(msg: Dict[str, Any]) -> Dict[str, Any]:
 
-    parsed = safe_parse_json(msg.get("content", ""))
+    # parsed = safe_parse_json(msg.get("content", ""))
 
-    if not isinstance(parsed, dict):
-        return {"content": msg.get("content", "")}
-    print("parsed:", parsed)
+    if not isinstance(msg, dict):
+        return {}
+    # print("parsed:", parsed)
     parts = {}
 
-    answer = parsed.get("answer")
-    
+    answer = msg.get("answer")
+
     if isinstance(answer, str) and answer.strip():
         parts["answer"] = answer.strip()
 
@@ -437,6 +437,7 @@ def get_chat_history(chat_id:str, exclude_message_id:str =None)-> List[Dict[str,
         Returns:
             List of message dictionaries with 'role' and 'content' keys
     """
+    print("inside get_chat_history")
     try:
         query = (
             supabase.table("messages")
@@ -456,17 +457,23 @@ def get_chat_history(chat_id:str, exclude_message_id:str =None)-> List[Dict[str,
         
         # Get last 10 messages (limit to 10 total messages)
         recent_messages = messages_result.data[-10:]
-        
-        # Format messages for agent
-        formatted_history = []
-        for msg in recent_messages:
-            aimessage_content = format_structured_ai_content(msg)
-            formatted_history.append({
-                "role": msg.get("role", "user"),
-                "content": aimessage_content
-            })
-        
-        return formatted_history
+        # print("recent_messages:", recent_messages)
+        # # Format messages for agent
+        # formatted_history = []
+        # for msg in recent_messages:
+        #     if msg.get('role') == 'assistant':
+        #         aimessage_content = format_structured_ai_content(msg)
+        #         formatted_history.append({
+        #             "role": msg.get("role", "assistant"),
+        #             "content": aimessage_content
+        #         })
+        #     else:
+        #         formatted_history.append({
+        #             "role": msg.get("role", "user"),
+        #             "content": msg.get("content", "")
+        #         })
+        # return formatted_history
+        return recent_messages
     except Exception:
         # If history retrieval fails, return empty list
         return []
@@ -614,15 +621,17 @@ async def send_message(
         #     user_query=message, texts=texts, images=images, tables=tables
         # )
         # final_response = result["messages"][-1].content
-        
+        print("agent result:", result)
         analysis_result = result.get("analysis_result", {})
         citations = result.get("citations",[])
+        messages = result.get("messages", [])
 
-        if analysis_result:
-            final_response = json.dumps(analysis_result)
-        else:
-            final_response = result["messages"][-1].content
+        # if analysis_result:
+        #     final_response = json.dumps(analysis_result)
+        # else:
+        #     final_response = result["messages"][-1].content
     
+        final_response = result["messages"][-1].content
 
         # Step 5: Insert the AI Response into the database.
         ai_response_insert_data = {

@@ -53,7 +53,7 @@ interface ParsedLLMContent {
 
 export function MessageItem({ message, onFeedback }: MessageItemProps) {
   const isUser = message.role === "user";
-  // console.log("Message:", message);
+  console.log("Message:", message);
 
   const time = new Date(message.created_at).toLocaleTimeString([], {
     hour: "2-digit",
@@ -71,8 +71,9 @@ export function MessageItem({ message, onFeedback }: MessageItemProps) {
     }
 
     try {
-      const parsed: ParsedLLMContent = JSON.parse(message.content);
-
+      const cleanedContent = message.content.replace(/^```json\s*|```$/g, '').trim();
+      const parsed: ParsedLLMContent = JSON.parse(cleanedContent);
+      console.log("parsed:", parsed);
       return {
         isStructured: true,
         textContent: "",
@@ -80,6 +81,7 @@ export function MessageItem({ message, onFeedback }: MessageItemProps) {
         citations: [...(parsed.citations || []), ...(message.citations || [])],
       };
     } catch {
+      console.log("Failed to parse message content as JSON");
       return {
         isStructured: false,
         textContent: message.content,
