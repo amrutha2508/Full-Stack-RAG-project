@@ -1,0 +1,32 @@
+date,product,category,quantity,unit_price,total_sales,region,customer_age
+2024-01-05,Widget A,Electronics,15,29.99,449.85,North,34
+2024-01-05,Widget B,Electronics,8,49.99,399.92,South,28
+2024-01-06,Gadget X,Home,22,19.99,439.78,East,45
+2024-01-06,Widget A,Electronics,12,29.99,359.88,West,52
+2024-01-07,Gadget Y,Home,5,89.99,449.95,North,38
+2024-01-07,Widget C,Electronics,30,14.99,449.70,South,29
+2024-01-08,Gadget X,Home,18,19.99,359.82,East,41
+2024-01-08,Widget A,Electronics,25,29.99,749.75,West,33
+2024-01-09,Widget B,Electronics,10,49.99,499.90,North,47
+2024-01-09,Gadget Y,Home,7,89.99,629.93,South,55
+2024-01-10,Widget C,Electronics,45,14.99,674.55,East,31
+2024-01-10,Gadget Z,Home,3,149.99,449.97,West,62
+2024-01-11,Widget A,Electronics,20,29.99,599.80,North,36
+2024-01-11,Widget B,Electronics,6,49.99,299.94,South,44
+2024-01-12,Gadget X,Home,28,19.99,559.72,East,39
+2024-01-12,Gadget Y,Home,9,89.99,809.91,West,48
+2024-01-13,Widget C,Electronics,500,14.99,7495.00,North,27
+2024-01-13,Gadget Z,Home,2,149.99,299.98,South,58
+2024-01-14,Widget A,Electronics,16,29.99,479.84,East,35
+2024-01-14,Widget B,Electronics,11,49.99,549.89,West,42
+2024-01-15,Gadget X,Home,24,19.99,479.76,North,40
+2024-01-15,Widget C,Electronics,35,14.99,524.65,South,32
+2024-01-16,Gadget Y,Home,4,89.99,359.96,East,51
+2024-01-16,Gadget Z,Home,1,149.99,149.99,West,67
+2024-01-17,Widget A,Electronics,19,29.99,569.81,North,37
+2024-01-17,Widget B,Electronics,14,49.99,699.86,South,46
+2024-01-18,Gadget X,Home,31,19.99,619.69,East,43
+2024-01-18,Widget C,Electronics,42,14.99,629.58,West,30
+2024-01-19,Gadget Y,Home,6,89.99,539.94,North,54
+2024-01-19,Gadget Z,Home,800,149.99,119992.00,South,25
+

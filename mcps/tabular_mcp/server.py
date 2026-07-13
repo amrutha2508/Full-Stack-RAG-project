@@ -1074,8 +1074,8 @@ def generate_chart(
         auto_title = f'{y_column} by {x_column}'
         
         # Rotate x labels if needed
-        if df[x_column].dtype == 'object' or chart_type == 'bar':
-            plt.xticks(rotation=45, ha='right')
+        # if df[x_column].dtype == 'object' or chart_type == 'bar':
+    plt.xticks(rotation=45, ha='right')
     
     # Set title
     ax.set_title(title or auto_title, fontsize=14, fontweight='bold')

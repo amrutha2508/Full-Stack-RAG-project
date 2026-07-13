@@ -483,20 +483,165 @@ def get_retry_after_seconds(error: Exception, default: float = 8.0) -> float:
     return float(match.group(1)) if match else default
 
 
-async def invoke_agent_with_retry(agent, payload, config, max_retries: int = 3):
+# async def invoke_agent_with_retry(agent, payload, config, max_retries: int = 3):
+#     last_error = None
+
+#     for attempt in range(max_retries):
+#         try:
+#             return await agent.ainvoke(payload, config=config)
+
+#         except RateLimitError as e:
+#             last_error = e
+#             wait = get_retry_after_seconds(e) + 1
+#             print(f"Rate limit hit. Attempt {attempt + 1}/{max_retries}. Retrying in {wait:.2f}s...")
+#             await asyncio.sleep(wait)
+
+#     raise last_error
+
+async def invoke_agent_with_retry(
+    agent,
+    payload,
+    config,
+    max_retries: int = 3,
+):
     last_error = None
 
     for attempt in range(max_retries):
         try:
-            return await agent.ainvoke(payload, config=config)
+            if attempt == 0:
+                # Start the graph with the new user message.
+                return await agent.ainvoke(
+                    payload,
+                    config=config,
+                )
+
+            # Resume from the last successful checkpoint.
+            # Do not append the user message again.
+            return await agent.ainvoke(
+                None,
+                config=config,
+            )
 
         except RateLimitError as e:
             last_error = e
+
+            if attempt == max_retries - 1:
+                break
+
             wait = get_retry_after_seconds(e) + 1
-            print(f"Rate limit hit. Attempt {attempt + 1}/{max_retries}. Retrying in {wait:.2f}s...")
+
+            print(
+                f"Rate limit hit. "
+                f"Attempt {attempt + 1}/{max_retries}. "
+                f"Retrying in {wait:.2f}s..."
+            )
+
             await asyncio.sleep(wait)
 
     raise last_error
+
+import json
+from typing import Any, Dict
+
+
+def merge_image_data_into_final_response(
+    final_response: str,
+    analysis_result: Dict[str, Any],
+) -> str:
+    """
+    Replace placeholder image data in the final LLM response with the actual
+    Base64 image data stored in analysis_result.
+
+    Matching priority:
+    1. Image title + format
+    2. Image title
+    3. Image position/order
+    """
+    if not final_response:
+        return final_response
+
+    try:
+        parsed_response = json.loads(final_response)
+    except (json.JSONDecodeError, TypeError):
+        # The final response is plain text, so there are no JSON blocks to update.
+        return final_response
+
+    if not isinstance(parsed_response, dict):
+        return final_response
+
+    response_blocks = parsed_response.get("blocks", [])
+    analysis_blocks = analysis_result.get("blocks", [])
+
+    if not isinstance(response_blocks, list) or not isinstance(analysis_blocks, list):
+        return final_response
+
+    actual_image_blocks = [
+        block
+        for block in analysis_blocks
+        if isinstance(block, dict)
+        and block.get("type") == "image"
+        and block.get("data")
+    ]
+
+    if not actual_image_blocks:
+        return final_response
+
+    used_image_indexes = set()
+
+    for response_block in response_blocks:
+        if not isinstance(response_block, dict):
+            continue
+
+        if response_block.get("type") != "image":
+            continue
+
+        matching_index = None
+
+        # First try matching by both title and format.
+        for index, analysis_block in enumerate(actual_image_blocks):
+            if index in used_image_indexes:
+                continue
+
+            if (
+                analysis_block.get("title") == response_block.get("title")
+                and analysis_block.get("format") == response_block.get("format")
+            ):
+                matching_index = index
+                break
+
+        # Fall back to matching only by title.
+        if matching_index is None:
+            for index, analysis_block in enumerate(actual_image_blocks):
+                if index in used_image_indexes:
+                    continue
+
+                if analysis_block.get("title") == response_block.get("title"):
+                    matching_index = index
+                    break
+
+        # Final fallback: use the next unused image.
+        if matching_index is None:
+            for index in range(len(actual_image_blocks)):
+                if index not in used_image_indexes:
+                    matching_index = index
+                    break
+
+        if matching_index is None:
+            continue
+
+        response_block["data"] = actual_image_blocks[matching_index]["data"]
+        response_block["encoding"] = actual_image_blocks[matching_index].get(
+            "encoding",
+            response_block.get("encoding", "base64"),
+        )
+        response_block["format"] = actual_image_blocks[matching_index].get(
+            "format",
+            response_block.get("format"),
+        )
+
+        used_image_indexes.add(matching_index)
+
+    return json.dumps(parsed_response)
 
 @router.post("/{project_id}/chats/{chat_id}/messages")
 async def send_message(
@@ -631,8 +776,15 @@ async def send_message(
         # else:
         #     final_response = result["messages"][-1].content
     
-        final_response = result["messages"][-1].content
+        raw_final_response = messages[-1].content
 
+        final_response = merge_image_data_into_final_response(
+            final_response=raw_final_response,
+            analysis_result=analysis_result,
+        )
+
+        print("raw final response:", raw_final_response)
+        print("final response:", final_response)
         # Step 5: Insert the AI Response into the database.
         ai_response_insert_data = {
             "content": final_response,

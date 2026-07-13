@@ -7,19 +7,61 @@ from src.routes.chatRoutes import router as chatRoutes
 from contextlib import asynccontextmanager
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from src.config.index import appConfig
-
+from urllib.parse import urlparse
+import psycopg
 checkpointer = None
+
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     global checkpointer
+#     async with AsyncPostgresSaver.from_conn_string(
+#         appConfig["SUPABASE_POSTGRES_CONNECTION_STRING"]
+#     ) as saver:
+#         await saver.setup()
+#         checkpointer = saver
+#         app.state.checkpointer = checkpointer
+#         yield
+
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     global checkpointer
+
+#     conn_str = appConfig["SUPABASE_POSTGRES_CONNECTION_STRING"]
+#     host = urlparse(conn_str).hostname
+
+#     print("Postgres host:", host)
+
+#     if not host or "..." in host:
+#         raise ValueError("Invalid Supabase Postgres connection string host")
+
+#     async with AsyncPostgresSaver.from_conn_string(conn_str) as saver:
+#         await saver.setup()
+#         checkpointer = saver
+#         app.state.checkpointer = checkpointer
+#         yield
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global checkpointer
-    async with AsyncPostgresSaver.from_conn_string(
-        appConfig["SUPABASE_POSTGRES_CONNECTION_STRING"]
-    ) as saver:
-        await saver.setup()
-        checkpointer = saver
-        app.state.checkpointer = checkpointer
+
+    conn_str = appConfig["SUPABASE_POSTGRES_CONNECTION_STRING"]
+
+    conn = await psycopg.AsyncConnection.connect(
+        conn_str,
+        prepare_threshold=None,
+        autocommit=True,
+    )
+
+    saver = AsyncPostgresSaver(conn)
+    await saver.setup()
+
+    checkpointer = saver
+    app.state.checkpointer = checkpointer
+
+    try:
         yield
+    finally:
+        await conn.close()
 
 app = FastAPI(
     title = "RAG Application",

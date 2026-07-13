@@ -688,6 +688,60 @@ def is_tabular_ai_message(msg: Dict[str, Any]) -> bool:
         and block.get("type") in ("table", "image")
         for block in blocks
     ) 
+def compact_tabular_history(msg: Dict[str, Any]) -> Dict[str, Any]:
+    parsed = safe_parse_json(msg.get("content", ""))
+
+    if not isinstance(parsed, dict):
+        return msg
+
+    blocks = parsed.get("blocks", [])
+
+    if not isinstance(blocks, list):
+        return msg
+
+    tabular_indexes = [
+        index
+        for index, block in enumerate(blocks)
+        if isinstance(block, dict)
+        and block.get("type") in ("table", "image")
+    ]
+
+    if not tabular_indexes:
+        return msg
+
+    last_tabular_index = max(tabular_indexes)
+    compact_blocks = []
+
+    for index, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            continue
+
+        block_type = block.get("type")
+
+        if block_type == "table":
+            compact_blocks.append({
+                "type": "table",
+                "title": block.get("title"),
+                "columns": block.get("columns", []),
+                "row_count": len(block.get("rows", [])),
+            })
+
+        elif block_type == "image":
+            compact_blocks.append({
+                "type": "image",
+                "title": block.get("title"),
+            })
+
+        elif block_type == "markdown" and index <= last_tabular_index:
+            compact_blocks.append(block)
+
+    return {
+        "role": msg.get("role"),
+        "content": json.dumps({
+            "blocks": compact_blocks,
+            "citations": [],
+        }),
+    }
 
 def extract_tabular_history(chat_history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     tabular_history = []
@@ -697,7 +751,7 @@ def extract_tabular_history(chat_history: List[Dict[str, Any]]) -> List[Dict[str
             if i > 0 and chat_history[i - 1].get("role") == "user":
                 tabular_history.append(chat_history[i - 1])
 
-            tabular_history.append(compact_tabular_ai_message(msg))
+            tabular_history.append(compact_tabular_history(msg))
     print("tabular history extracted:", tabular_history)
     return tabular_history
 
@@ -870,7 +924,7 @@ def tabular_result_to_frontend_response(structured_result: Dict[str, Any]) -> Di
                 "title": chart.get("title", "Chart"),
                 "format": "png",
                 "encoding": "base64",
-                "data": chart["image_base64"],
+                "data": chart.get("image_base64"),
             })
 
     if structured_result.get("insights"):
@@ -1014,6 +1068,7 @@ def create_tabular_analysis_tool(project_id: str, model: str = "gpt-4o", tabular
         citations = agent_result.get("citations", [])
         print("*"*20, "frontend_response", "="*20)
         frontend_response = tabular_result_to_frontend_response(structured_result)
+        print("frontend_response:", frontend_response)
         llm_visible_response = strip_image_data_for_llm(frontend_response)
         return Command(update={
             "messages": [
